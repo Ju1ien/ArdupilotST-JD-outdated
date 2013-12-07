@@ -22,6 +22,10 @@
 #define WPNAV_LOITER_ACCEL_MIN           25.0f      // minimum acceleration in loiter mode
 #define WPNAV_LOITER_SPEED_MAX_TO_CORRECT_ERROR 200.0f      // maximum speed used to correct position error (i.e. not including feed forward)
 
+#define WPNAV_ENGAGE_SEC		        5.0f        // ST-JD : default engage time for loiter
+#define WPNAV_LOITER_MODE				0			// ST-JD : default loiter standard; 1=ALT_HOLD+LOITER
+#define WPNAV_LOITER_DB					30			// ST-JD : default ALT_HOLD+LOITER commutation threshold
+
 #define MAX_LEAN_ANGLE                  4500        // default maximum lean angle
 
 #define WPNAV_WP_SPEED                  500.0f      // default horizontal speed betwen waypoints in cm/s
@@ -35,6 +39,10 @@
 
 #define WPNAV_MIN_LEASH_LENGTH          100.0f      // minimum leash lengths in cm
 
+#define BRAKE_RATE                      10.0f       // ST-JD : set it from 5 to 20, means the number of deg/s the copter rolls/tilt during braking
+#define MAX_BRAKING_ANGLE               3000        // ST-JD : set it from 2000 to 4500 in centidegrees
+#define SPEED_0                         10          // ST-JD : the max speed in cm/s to consider we have no more velocity for switching to loiter
+	
 class AC_WPNav
 {
 public:
@@ -104,6 +112,15 @@ public:
     ///
     /// shared methods
     ///
+    AP_Float    _loiter_engage_sec;     // ST-JD : Controls loiter start-up time.  If 0, soft engage disabled
+	AP_Int16  	_loiter_deadband;		// ST-JD : loiter to alt_hold threshold switch
+	AP_Float    _brake_rate;			// ST-JD : set it from 5 to 20, means the number of deg/s the copter rolls/tilt during braking
+    AP_Int16    _max_braking_angle;		// ST-JD : set it from 2000 to 4500 in centidegrees
+    AP_Int16	_speed_max_braking;		// ST-JD : the min speed in cm/s that requires full braking angle
+    AP_Int16	_speed_0;				// ST-JD : the max speed in cm/s to consider we have no more velocity for switching to loiter
+	
+	uint8_t		loiter_reset;           // ST-JD
+	float		loiter_gain;            // ST-JD
 
     /// get desired roll, pitch which should be fed into stabilize controllers
     int32_t get_desired_roll() const { return _desired_roll; };

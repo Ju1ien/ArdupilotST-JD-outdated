@@ -60,7 +60,61 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] PROGMEM = {
     // @Increment: 10
     // @User: Standard
     AP_GROUPINFO("ACCEL",       5, AC_WPNav, _wp_accel_cms, WPNAV_ACCELERATION),
-
+	
+    //*********************************************************************
+    // ST-JD Hybrid params
+    //*********************************************************************
+    
+    // @Param: HB_LOIT_ENGAGE_SEC
+    // @DisplayName: Loiter engage seconds
+    // @Description: Controls loiter start-up time.  If 0, soft engage disabled
+	// @Suggested range: 0.5 min, 6.0 max
+    // @Units: s
+    // @Range: 0.5 6.0
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("LOIT_ENG_S",    6, AC_WPNav, _loiter_engage_sec, WPNAV_ENGAGE_SEC),
+	
+	// @Param: HB_LOIT_DBAND
+    // @DisplayName: Loiter-alt_hold switch threshold
+    // @Description: Controls loiter switch to alt_hold.  
+	// @Suggested range: 5 100
+    // @Units: 
+    // @Range: 5 100
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("LOIT_DB",    8, AC_WPNav, _loiter_deadband, WPNAV_LOITER_DB),
+	
+	// @Param: HB_BR_RATE
+    // @DisplayName: number of deg/s the copter rolls/tilt during braking
+    // @Description:   
+	// @Suggested range: 5 20
+    // @Units: deg/s
+    // @Range: 5 20
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("BR_RATE",    9, AC_WPNav, _brake_rate, BRAKE_RATE),
+	
+	// @Param: HB_MAX_BR_ANG
+    // @DisplayName: max pitch/roll angle during braking
+    // @Description:  set it from 2000 to 4500 in centidegrees
+	// @Suggested range: 2000 4500
+    // @Units: cdeg
+    // @Range: 2000 4500
+    // @Increment: 100
+    // @User: Standard
+    AP_GROUPINFO("BR_MAX_ANG",   10, AC_WPNav, _max_braking_angle, MAX_BRAKING_ANGLE),
+	
+	// @Param: HB_SPEED_0
+    // @DisplayName: the max speed in cm/s to consider we have no more velocity for switching to loiter
+	// #Description: 
+	// @Suggested range: 
+    // @Units: cm/s
+    // @Range: 
+    // @Increment: 
+    // @User: Standard
+    AP_GROUPINFO("BR_SPEED_0",   11, AC_WPNav, _speed_0, SPEED_0),
+    
     AP_GROUPEND
 };
 
@@ -101,9 +155,10 @@ AC_WPNav::AC_WPNav(const AP_InertialNav* inav, const AP_AHRS* ahrs, APM_PI* pid_
     desired_accel(0,0)
 {
     AP_Param::setup_object_defaults(this, var_info);
-
+    loiter_gain=1.0f;  // ST-JD : init loiter gain to 1.0, so loiter pid @ 100% 
     // calculate loiter leash
     calculate_loiter_leash_length();
+    loiter_reset=1;    // ST-JD
 }
 
 ///
@@ -172,7 +227,8 @@ void AC_WPNav::init_loiter_target(const Vector3f& position, const Vector3f& velo
 
     // set last velocity to current velocity
     // To-Do: remove the line below by instead forcing reset_I to be called on the first loiter_update call
-    _vel_last = _inav->get_velocity();
+    // ST-JD commented. _vel_last = _inav->get_velocity();
+    loiter_reset=1; // ST-JD
 }
 
 /// move_loiter_target - move loiter target by velocity provided in front/right directions in cm/s
@@ -262,8 +318,10 @@ void AC_WPNav::update_loiter()
     float dt = (now - _loiter_last_update) / 1000.0f;
 
     // catch if we've just been started
-    if( dt >= 1.0 ) {
+    if ((dt>=1.0)||(loiter_reset==1)) {     // ST-JD : add "or loiter_reset"
+
         dt = 0.0;
+		loiter_reset=0;                     // ST-JD
         reset_I();
         _loiter_step = 0;
     }
@@ -641,10 +699,20 @@ void AC_WPNav::get_loiter_velocity_to_acceleration(float vel_lat, float vel_lon,
     vel_error.x = vel_lat - vel_curr.x;
     vel_error.y = vel_lon - vel_curr.y;
 
-    // combine feed foward accel with PID outpu from velocity error
-    desired_accel.x += _pid_rate_lat->get_pid(vel_error.x, dt);
-    desired_accel.y += _pid_rate_lon->get_pid(vel_error.y, dt);
-
+	if (_loiter_engage_sec<=0.1f)   // ST-JD : smooth loiter start
+	{
+		// combine feed forward accel with PID output from velocity error
+		desired_accel.x += _pid_rate_lat->get_pid(vel_error.x, dt);
+		desired_accel.y += _pid_rate_lon->get_pid(vel_error.y, dt);
+	}
+	else
+	{
+		desired_accel.x += loiter_gain*_pid_rate_lat->get_pid(vel_error.x, dt);
+		desired_accel.y += loiter_gain*_pid_rate_lon->get_pid(vel_error.y, dt);
+		// aggiorna il loiter_gain
+		if (loiter_gain<1.0f) loiter_gain+=dt/_loiter_engage_sec; else loiter_gain=1.0f;
+	}
+    
     // scale desired acceleration if it's beyond acceptable limit
     accel_total = safe_sqrt(desired_accel.x*desired_accel.x + desired_accel.y*desired_accel.y);
     if( accel_total > WPNAV_ACCEL_MAX ) {
