@@ -709,7 +709,7 @@ void AC_WPNav::get_loiter_velocity_to_acceleration(float vel_lat, float vel_lon,
 	{
 		desired_accel.x += loiter_gain*_pid_rate_lat->get_pid(vel_error.x, dt);
 		desired_accel.y += loiter_gain*_pid_rate_lon->get_pid(vel_error.y, dt);
-		// aggiorna il loiter_gain
+		// update loiter_gain
 		if (loiter_gain<1.0f) loiter_gain+=dt/_loiter_engage_sec; else loiter_gain=1.0f;
 	}
     
