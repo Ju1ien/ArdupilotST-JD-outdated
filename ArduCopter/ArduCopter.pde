@@ -627,7 +627,7 @@ static uint8_t hybrid_mode_pitch;		// 1=alt_hold; 2=brake 3=loiter
 static int16_t brake_roll, brake_pitch; // 
 static int32_t K_brake;					// 
 
-static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
+//static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
 static uint16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
 static uint16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
 static uint16_t half_brake_time_roll, half_brake_time_pitch; //used to detect half braking
