@@ -205,6 +205,7 @@
 #define NAV_CIRCLE      1
 #define NAV_LOITER      2
 #define NAV_WP          3
+#define NAV_HYBRID		4	// ST-JD: nav mode, used for initialisation on nav mode change
 
 // Yaw behaviours during missions - possible values for WP_YAW_BEHAVIOR parameter
 #define WP_YAW_BEHAVIOR_NONE                          0   // auto pilot will never control yaw during missions or rtl (except for DO_CONDITIONAL_YAW command received)
