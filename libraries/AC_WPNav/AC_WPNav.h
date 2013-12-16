@@ -118,10 +118,9 @@ public:
     AP_Int16    _max_braking_angle;		// ST-JD : set it from 2000 to 4500 in centidegrees
     AP_Int16	_speed_max_braking;		// ST-JD : the min speed in cm/s that requires full braking angle
     AP_Int16	_speed_0;				// ST-JD : the max speed in cm/s to consider we have no more velocity for switching to loiter
+	bool		loiter_reset;           // ST-JD
+	float 		start_gain;				// ST-JD
 	
-	uint8_t		loiter_reset;           // ST-JD
-	float		loiter_gain;            // ST-JD
-
     /// get desired roll, pitch which should be fed into stabilize controllers
     int32_t get_desired_roll() const { return _desired_roll; };
     int32_t get_desired_pitch() const { return _desired_pitch; };

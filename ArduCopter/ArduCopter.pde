@@ -627,6 +627,7 @@ static uint8_t hybrid_mode_pitch;		// 1=alt_hold; 2=brake 3=loiter
 static int16_t brake_roll, brake_pitch; // 
 static float K_brake;					// ST-JD: it was int32 instead of float!!
 static float gain_step;					// ST-JD: gain increment during transition from brake to loiter
+
 //static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
 static uint16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
 static uint16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
@@ -1667,10 +1668,7 @@ void update_roll_pitch_mode(void)
 	//const Vector3f &vel= inertial_nav.get_velocity();  // current velocity in cm/s;
 	Vector3f vel;               // ST-JD : Used for Hybrid_mode
 	float vel_fw, vel_right;    // ST-JD : Used for Hybrid_mode
-	bool is_yawing=false;		// ST-JD : Used to inibit brake during yawing
-	static float gain_roll=1.0;	// ST-JD : soft transition from brake to loiter (roll)
-	static float gain_pitch=1.0;// ST-JD : soft transition fron brake to loiter (pitch)
-	
+		
     switch(roll_pitch_mode) {
     case ROLL_PITCH_ACRO:
         // copy user input for reporting purposes
@@ -1763,12 +1761,10 @@ void update_roll_pitch_mode(void)
 		vel = inertial_nav.get_velocity();
 		vel_fw = vel.x*cos_yaw + vel.y*sin_yaw;		// Body frame referred
 		vel_right = -vel.x*sin_yaw + vel.y*cos_yaw;	// Body frame referred
-
+		
 		//define roll/pitch modes from stick input
         //get roll stick input and update new roll mode
-		// ST-JD : if pilot requires yawing => MANUAL MODE (comment this line to allow brake during yawing)
-		//is_yawing = (abs(g.rc_4.control_in)>wp_nav.loiter_deadband);
-        if (is_yawing||(abs(control_roll) > wp_nav._loiter_deadband)){ //stick input detected => direct to stab mode
+		if (abs(control_roll) > wp_nav._loiter_deadband) { //stick input detected => direct to stab mode
 		    hybrid_mode_roll = 1;           // Set stab roll mode
         }else{
 			if(hybrid_mode_roll == 1){	    // stick released from stab => transition mode
@@ -1782,13 +1778,13 @@ void update_roll_pitch_mode(void)
 				if (timeout_roll>0) timeout_roll--;
 				if ((hybrid_mode_roll == 2) && ((timeout_roll==0) || (fabs(vel_right)<wp_nav._speed_0))){	 //stick released and transition finished (speed 0) or brake timeout => loiter mode
 					hybrid_mode_roll = 3;   // Set loiter roll mode   
-					gain_roll=0;			// ST-JD : init transition on roll
+					wp_nav.start_gain=0;
 					//if(nav_mode == NAV_LOITER) wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity()); // Nav could be already set to loiter for pitch, has to init again for roll
 				}
 			}
 		}
 		//get pitch stick input and update new pitch mode
-        if (is_yawing||(abs(control_pitch) > wp_nav._loiter_deadband)){  //stick input detected => direct to stab mode
+        if (abs(control_pitch) > wp_nav._loiter_deadband){  //stick input detected => direct to stab mode
 		    hybrid_mode_pitch = 1;          // Set stab pitch mode
         }else{
 			if(hybrid_mode_pitch == 1){	    //stick released from stab => transition mode
@@ -1803,7 +1799,7 @@ void update_roll_pitch_mode(void)
 				if (timeout_pitch>0) timeout_pitch--;
 				if ((hybrid_mode_pitch == 2) && ((timeout_pitch==0) || (fabs(vel_fw)<wp_nav._speed_0))){   //stick released and transition finished (speed 0) or brake timeout => loiter mode
 					hybrid_mode_pitch = 3;  // Set loiter pitch mode
-					gain_pitch=0;			// ST-JD : init transition on pitch
+					wp_nav.start_gain=0;
 					//if(nav_mode == NAV_LOITER) wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity()); // Nav could be already set to loiter for roll, has to init again for pitch
 				}
 			}
@@ -1815,7 +1811,7 @@ void update_roll_pitch_mode(void)
         }
 		
         // braking update
-		if (hybrid_mode_roll>=2){       // Roll: allow braking update to run also during loiter to implement soft transition (see gain_roll) 
+		if (hybrid_mode_roll>=2){       // Roll: allow braking update to run also during loiter 
 			brake_count_roll++;			// update counter
 			if(vel_right>=0){           // negative roll means go left
                 brake_roll = max(brake_roll-wp_nav._brake_rate,max((-K_brake*vel_right*(1.0f+500.0f/(vel_right+60.0f))),-wp_nav._max_braking_angle)); // centidegrees
@@ -1830,7 +1826,7 @@ void update_roll_pitch_mode(void)
 			}
 		}	
 
-		if (hybrid_mode_pitch>=2){          // Pitch: allow braking update to run also during loiter to implement soft transition (see gain_pitch) 
+		if (hybrid_mode_pitch>=2){          // Pitch: allow braking update to run also during loiter
 			brake_count_pitch++;			// update counter
 			if(vel_fw>=0){                  // positive pitch means go backward
 				brake_pitch = min(brake_pitch+wp_nav._brake_rate,min((K_brake*vel_fw*(1.0f+(500.0f/(vel_fw+60.0f)))),wp_nav._max_braking_angle));  // centidegrees
@@ -1853,26 +1849,26 @@ void update_roll_pitch_mode(void)
 			case 1: { get_stabilize_roll(control_roll); break;}
 			case 2: { get_stabilize_roll(brake_roll); break;}
 			case 3: { 
-						if(nav_mode == NAV_HYBRID) // if nav_hybrid enabled...
-						{
-							get_stabilize_roll(gain_roll*wp_nav.get_desired_roll()+(1-gain_roll)*brake_roll);  	// mixer
-							if (gain_roll<1.0f) gain_roll+=gain_step; else gain_roll=1.0f;	// update the gain
+						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
+							get_stabilize_roll(wp_nav.get_desired_roll()); 
 							break;
 						}
-						else { get_stabilize_roll(brake_roll); break;}
+						else {
+							get_stabilize_roll(brake_roll); break;
+						}
 					}
 		}
 		switch (hybrid_mode_pitch){
 			case 1: { get_stabilize_pitch(control_pitch); break;}
 			case 2: { get_stabilize_pitch(brake_pitch); break;}
 			case 3: { 
-						if(nav_mode == NAV_HYBRID) // if nav_hybrid enabled...
-						{
-							get_stabilize_pitch(gain_pitch*wp_nav.get_desired_pitch()+(1-gain_pitch)*brake_pitch);	// mixer
-							if (gain_pitch<1.0f) gain_pitch+=0.01/wp_nav._loiter_engage_sec; else gain_pitch=1.0f;	// update the gain
+						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
+							get_stabilize_pitch(wp_nav.get_desired_pitch());
 							break;
 						}
-						else { get_stabilize_pitch(brake_pitch); break;}
+						else { 
+							get_stabilize_pitch(brake_pitch); break;
+						}
 					}
 		}
 		break;

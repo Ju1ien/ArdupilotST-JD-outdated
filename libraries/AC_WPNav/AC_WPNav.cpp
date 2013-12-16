@@ -155,10 +155,9 @@ AC_WPNav::AC_WPNav(const AP_InertialNav* inav, const AP_AHRS* ahrs, APM_PI* pid_
     desired_accel(0,0)
 {
     AP_Param::setup_object_defaults(this, var_info);
-    loiter_gain=1.0f;  // ST-JD : init loiter gain to 1.0, so loiter pid @ 100% 
     // calculate loiter leash
     calculate_loiter_leash_length();
-    loiter_reset=1;    // ST-JD
+    loiter_reset=true;    // ST-JD
 }
 
 ///
@@ -228,7 +227,8 @@ void AC_WPNav::init_loiter_target(const Vector3f& position, const Vector3f& velo
     // set last velocity to current velocity
     // To-Do: remove the line below by instead forcing reset_I to be called on the first loiter_update call
     // ST-JD commented. _vel_last = _inav->get_velocity();
-    loiter_reset=1; // ST-JD
+	//_vel_last = _inav->get_velocity();
+    loiter_reset=true; // ST-JD
 }
 
 /// move_loiter_target - move loiter target by velocity provided in front/right directions in cm/s
@@ -318,10 +318,10 @@ void AC_WPNav::update_loiter()
     float dt = (now - _loiter_last_update) / 1000.0f;
 
     // catch if we've just been started
-    if ((dt>=1.0)||(loiter_reset==1)) {     // ST-JD : add "or loiter_reset"
+    if ((dt>=1.0)||loiter_reset) {     // ST-JD : add "or loiter_reset"
 
         dt = 0.0;
-		loiter_reset=0;                     // ST-JD
+		loiter_reset=false;                     // ST-JD
         reset_I();
         _loiter_step = 0;
     }
@@ -628,7 +628,7 @@ void AC_WPNav::update_wpnav()
 ///     converts desired position held in _target vector to desired velocity
 void AC_WPNav::get_loiter_position_to_velocity(float dt, float max_speed_cms)
 {
-    Vector3f curr = _inav->get_position();
+    Vector3f curr = _inav->get_position();		// ST-JD: in cm from base position
     float dist_error_total;
 
     float vel_sqrt;
@@ -681,15 +681,17 @@ void AC_WPNav::get_loiter_velocity_to_acceleration(float vel_lat, float vel_lon,
     Vector3f vel_error;                         // The velocity error in cm/s.
     float accel_total;                          // total acceleration in cm/s/s
 
-    // reset last velocity if this controller has just been engaged or dt is zero
-    if( dt == 0.0 ) {
-        desired_accel.x = 0;
-        desired_accel.y = 0;
-    } else {
-        // feed forward desired acceleration calculation
-        desired_accel.x = (vel_lat - _vel_last.x)/dt;
-        desired_accel.y = (vel_lon - _vel_last.y)/dt;
-    }
+	// reset last velocity if this controller has just been engaged or dt is zero
+	if( dt == 0.0 ) {
+		desired_accel.x = 0;
+		desired_accel.y = 0;
+		start_gain=0;
+	} else {
+		// feed forward desired acceleration calculation
+		desired_accel.x = start_gain*(vel_lat - _vel_last.x)/dt;	// JD-ST : derivative term soft-start
+		desired_accel.y = start_gain*(vel_lon - _vel_last.y)/dt;	
+		if (start_gain<1.0) start_gain+=dt/_loiter_engage_sec; else start_gain=1.0; // JD-ST : soft-start gain time ramp
+	}
 
     // store this iteration's velocities for the next iteration
     _vel_last.x = vel_lat;
@@ -699,20 +701,10 @@ void AC_WPNav::get_loiter_velocity_to_acceleration(float vel_lat, float vel_lon,
     vel_error.x = vel_lat - vel_curr.x;
     vel_error.y = vel_lon - vel_curr.y;
 
-	if (_loiter_engage_sec<=0.1f)   // ST-JD : smooth loiter start
-	{
-		// combine feed forward accel with PID output from velocity error
-		desired_accel.x += _pid_rate_lat->get_pid(vel_error.x, dt);
-		desired_accel.y += _pid_rate_lon->get_pid(vel_error.y, dt);
-	}
-	else
-	{
-		desired_accel.x += loiter_gain*_pid_rate_lat->get_pid(vel_error.x, dt);
-		desired_accel.y += loiter_gain*_pid_rate_lon->get_pid(vel_error.y, dt);
-		// update loiter_gain
-		if (loiter_gain<1.0f) loiter_gain+=dt/_loiter_engage_sec; else loiter_gain=1.0f;
-	}
-    
+	// combine feed forward accel with PID output from velocity error
+	desired_accel.x += _pid_rate_lat->get_pid(vel_error.x, dt);
+	desired_accel.y += _pid_rate_lon->get_pid(vel_error.y, dt);
+		
     // scale desired acceleration if it's beyond acceptable limit
     accel_total = safe_sqrt(desired_accel.x*desired_accel.x + desired_accel.y*desired_accel.y);
     if( accel_total > WPNAV_ACCEL_MAX ) {

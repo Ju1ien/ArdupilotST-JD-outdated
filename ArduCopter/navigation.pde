@@ -76,14 +76,13 @@ static bool set_nav_mode(uint8_t new_nav_mode)
 {
     bool nav_initialised = false;       // boolean to ensure proper initialisation of nav modes
     Vector3f stopping_point;            // stopping point for circle mode
-
+	
     // return immediately if no change
     if( new_nav_mode == nav_mode ) {
         return true;
     }
 
     switch( new_nav_mode ) {
-
         case NAV_NONE:
             nav_initialised = true;
             // initialise global navigation variables including wp_distance
@@ -112,7 +111,7 @@ static bool set_nav_mode(uint8_t new_nav_mode)
 			nav_initialised=true;
 			break;
     }
-
+	
     // if initialisation has been successful update the yaw mode
     if( nav_initialised ) {
         nav_mode = new_nav_mode;
