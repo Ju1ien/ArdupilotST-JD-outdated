@@ -630,9 +630,8 @@ static float gain_step;					// ST-JD: gain increment during transition from brak
 
 //static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
 static uint16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
+static bool timeout_roll_updated, timeout_pitch_updated; 	// Allow the timeout to be updated only once per braking.
 static uint16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
-static uint16_t half_brake_time_roll, half_brake_time_pitch; //used to detect half braking
-static uint16_t brake_count_roll, brake_count_pitch;		 // counter
 ////////////////////////////////////////////////////////////////////////////////
 // CH7 and CH8 save waypoint control
 ////////////////////////////////////////////////////////////////////////////////
@@ -1770,9 +1769,9 @@ void update_roll_pitch_mode(void)
 			if(hybrid_mode_roll == 1){	    // stick released from stab => transition mode
 			 	hybrid_mode_roll = 2;       // Set brake roll mode
 				brake_roll = 0;             // reset brake
-				timeout_roll=1000; 		    // seconds*0.01 - time allowed for the braking to complete, updated at half-braking
-				brake_max_roll=0; 		    // used to detect half braking
-				half_brake_time_roll=0;     // used to detect half braking
+				timeout_roll = 1000; 		// seconds*0.01 - time allowed for the braking to complete, updated at half-braking
+				timeout_roll_updated = false;   // Allow the timeout to be updated only once
+                brake_max_roll = 0; 		// used to detect half braking
 			}else{                          // manage brake-to-loiter transition
 				// brake timeout
 				if (timeout_roll>0) timeout_roll--;
@@ -1790,10 +1789,9 @@ void update_roll_pitch_mode(void)
 			if(hybrid_mode_pitch == 1){	    //stick released from stab => transition mode
                 hybrid_mode_pitch = 2;      // Set brake pitch mode
 				brake_pitch = 0;            // reset brake
-				brake_count_pitch=0;	    // reset rising brake counter
 				timeout_pitch=1000;		    // seconds*0.01 - time allowed for the braking to complete, updated at half-braking
-				brake_max_pitch=0; 		    // used to detect half braking
-				half_brake_time_pitch=0; 	// half braking time
+				timeout_pitch_updated = false;   // Allow the timeout to be updated only once
+                brake_max_pitch=0; 		    // used to detect half braking
 			}else{                          // manage brake-to-loiter transition
 				// brake timeout
 				if (timeout_pitch>0) timeout_pitch--;
@@ -1812,32 +1810,30 @@ void update_roll_pitch_mode(void)
 		
         // braking update
 		if (hybrid_mode_roll>=2){       // Roll: allow braking update to run also during loiter 
-			brake_count_roll++;			// update counter
 			if(vel_right>=0){           // negative roll means go left
-                brake_roll = max(brake_roll-wp_nav._brake_rate,max((-K_brake*vel_right*(1.0f+500.0f/(vel_right+60.0f))),-wp_nav._max_braking_angle)); // centidegrees
+                brake_roll = max(min(ahrs.roll_sensor,brake_roll-wp_nav._brake_rate),max((-K_brake*vel_right*(1.0f+500.0f/(vel_right+60.0f))),-wp_nav._max_braking_angle)); // centidegrees
             }else{
-				brake_roll = min(brake_roll+wp_nav._brake_rate,min((-K_brake*vel_right*(1.0f+500.0f/(-vel_right+60.0f))),wp_nav._max_braking_angle));   // centidegrees
+				brake_roll = min(max(ahrs.roll_sensor,brake_roll+wp_nav._brake_rate),min((-K_brake*vel_right*(1.0f+500.0f/(-vel_right+60.0f))),wp_nav._max_braking_angle));   // centidegrees
             }
-			if (abs(brake_roll)>brake_max_roll){	// detect half braking and update timeout
-				brake_max_roll=abs(brake_roll);
-				half_brake_time_roll=brake_count_roll;
-			}else{
-				timeout_roll=(uint16_t)(11L*2L*(long)half_brake_time_roll/10L); // the 1.1 (11/10) factor has to be tuned in flight, here it means 110% of the "normal" time.
-			}
+            if (abs(brake_roll)>brake_max_roll){	// detect half braking and update timeout
+				brake_max_roll=abs(brake_roll);               
+			}else if (!timeout_roll_updated){
+                timeout_roll = 1+(uint16_t)(12L*(long)(abs(brake_roll))/(10L*(long)wp_nav._brake_rate));  // the 1.2 (12/10) factor has to be tuned in flight, here it means 120% of the "normal" time.
+                timeout_roll_updated = true;
+            }
 		}	
 
 		if (hybrid_mode_pitch>=2){          // Pitch: allow braking update to run also during loiter
-			brake_count_pitch++;			// update counter
 			if(vel_fw>=0){                  // positive pitch means go backward
-				brake_pitch = min(brake_pitch+wp_nav._brake_rate,min((K_brake*vel_fw*(1.0f+(500.0f/(vel_fw+60.0f)))),wp_nav._max_braking_angle));  // centidegrees
+				brake_pitch = min(max(ahrs.pitch_sensor,brake_pitch+wp_nav._brake_rate),min((K_brake*vel_fw*(1.0f+(500.0f/(vel_fw+60.0f)))),wp_nav._max_braking_angle));  // centidegrees
             }else{
-				brake_pitch = max(brake_pitch-wp_nav._brake_rate,max((K_brake*vel_fw*(1.0f-(500.0f/(vel_fw-60.0f)))),-wp_nav._max_braking_angle)); // centidegrees
+				brake_pitch = max(min(ahrs.pitch_sensor,brake_pitch-wp_nav._brake_rate),max((K_brake*vel_fw*(1.0f-(500.0f/(vel_fw-60.0f)))),-wp_nav._max_braking_angle)); // centidegrees
             }
 			if (abs(brake_pitch)>brake_max_pitch){	// detect half braking and update timeout
 				brake_max_pitch=abs(brake_pitch);
-				half_brake_time_pitch=brake_count_pitch;
-			}else{
-				timeout_pitch=(uint16_t)(11L*2L*(long)half_brake_time_pitch/10L); // the 1.1 (11/10) factor has to be tuned in flight, here it means 110% of the "normal" time.
+			}else if (!timeout_pitch_updated){
+				timeout_pitch = 1+(uint16_t)(12L*(long)(abs(brake_pitch))/(10L*(long)wp_nav._brake_rate));  // the 1.2 (12/10) factor has to be tuned in flight, here it means 120% of the "normal" time.
+                timeout_pitch_updated = true;
 			}
 		}
 	
