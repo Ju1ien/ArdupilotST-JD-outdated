@@ -97,6 +97,7 @@ static bool set_nav_mode(uint8_t new_nav_mode)
             break;
 
         case NAV_LOITER:
+			wp_nav.init_I=true;	// JD-ST : reset_I() must be called
             // set target to current position
             wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity());
             nav_initialised = true;
@@ -106,8 +107,10 @@ static bool set_nav_mode(uint8_t new_nav_mode)
             break;
 		case NAV_HYBRID:	// ST-JD: nav_hybrid initialisation of stopping point
 			// set target to stop position
+			wp_nav.init_I=false;	// reset_I() not to be called!
 			wp_nav.get_stopping_point(inertial_nav.get_position(), inertial_nav.get_velocity(), stopping_point);
 			wp_nav.init_loiter_target(stopping_point, Vector3f(0,0,0));
+			//wp_nav.init_loiter_target(stopping_point, inertial_nav.get_velocity());
 			nav_initialised=true;
 			break;
     }

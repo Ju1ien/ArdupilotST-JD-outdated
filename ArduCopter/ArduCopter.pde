@@ -530,6 +530,8 @@ static uint8_t command_cond_index;
 static float lon_error, lat_error;      // Used to report how many cm we are from the next waypoint or loiter target position
 static int16_t control_roll;            // desired roll angle of copter in centi-degrees
 static int16_t control_pitch;           // desired pitch angle of copter in centi-degrees
+//static int16_t control_yaw;				// 
+
 static uint8_t rtl_state;               // records state of rtl (initial climb, returning home, etc)
 static uint8_t land_state;              // records state of land (flying to location, descending)
 
@@ -627,12 +629,14 @@ static uint8_t hybrid_mode_pitch;		// 1=alt_hold; 2=brake 3=loiter
 static int16_t brake_roll, brake_pitch; // 
 static float K_brake;					// ST-JD: it was int32 instead of float!!
 static float gain_step;					// ST-JD: gain increment during transition from brake to loiter
-
-//static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
+static Vector2f	wind_comp;				// ST-JD : wind compensation vector, averaged I terms from loiter controller
+static uint16_t wind_offset_roll,wind_offset_pitch;	// ST-JD : wind offsets for pitch/roll			
 static uint16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
 static uint16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
 static uint16_t half_brake_time_roll, half_brake_time_pitch; //used to detect half braking
 static uint16_t brake_count_roll, brake_count_pitch;		 // counter
+static uint16_t loiter_stab_timer;		// loiter stabilization timer: we read pid's I terms in wind_comp only after this time from loiter start
+static uint8_t  update_wind_offset_timer;	// update wind_offset decimator (10Hz)
 ////////////////////////////////////////////////////////////////////////////////
 // CH7 and CH8 save waypoint control
 ////////////////////////////////////////////////////////////////////////////////
@@ -1615,9 +1619,12 @@ bool set_roll_pitch_mode(uint8_t new_roll_pitch_mode)
                 //cm/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
 				//K_brake=(float)wp_nav._max_braking_angle/speed_max_braking;					// brake_decrease_rate
 				K_brake=(15.0f*(float)wp_nav._brake_rate+95.0f)/100.0f;
-				gain_step=0.01/wp_nav._loiter_engage_sec;	// increment step for mixed transition
+				wp_nav.step_gain=0.01/wp_nav._loiter_engage_sec;	// increment step for mixed transition
                 hybrid_mode_roll=3;				// Loiter start
 				hybrid_mode_pitch=3;			// Loiter start
+				wind_comp=Vector2f(0,0);		// Init wind_comp vector (ef). For now, resetted each time hybrid is switched on
+				wind_offset_roll=0;
+				wind_offset_pitch=0;	// init offset angles
 				roll_pitch_initialised = true;	// require gps lock
 			}
             break;
@@ -1668,7 +1675,9 @@ void update_roll_pitch_mode(void)
 	//const Vector3f &vel= inertial_nav.get_velocity();  // current velocity in cm/s;
 	Vector3f vel;               // ST-JD : Used for Hybrid_mode
 	float vel_fw, vel_right;    // ST-JD : Used for Hybrid_mode
-		
+	static float vel_max_angle;
+	static uint16_t old_rc6;
+	
     switch(roll_pitch_mode) {
     case ROLL_PITCH_ACRO:
         // copy user input for reporting purposes
@@ -1808,6 +1817,23 @@ void update_roll_pitch_mode(void)
         // limit and scale stick input 
 		if(hybrid_mode_roll == 1 || hybrid_mode_pitch == 1){
             get_pilot_desired_lean_angles(g.rc_1.control_in, g.rc_2.control_in, control_roll, control_pitch);
+			/*
+			// applica lo yaw
+			if (ap.CH7_flag==1)
+			{
+				if (old_rc6!=g.rc_6.control_in)
+				{
+					vel_max_angle=15/(100+g.rc_6.control_in);	// 1...11 m/s
+					old_rc6=g.rc_6.control_in;
+				}
+				control_roll+=-(vel_fw*vel_max_angle)*g.rc_3.control_in;
+				if (control_roll>4500) control_roll=4500;
+				if (control_roll<-4500) control_roll=-4500;
+				control_pitch+=(vel_right*vel_max_angle)*g.rc_3.control_in;
+				if (control_pitch>4500) control_pitch=4500;
+				if (control_pitch<-4500) control_pitch=-4500;
+			}
+			*/
         }
 		
         // braking update
@@ -1840,14 +1866,53 @@ void update_roll_pitch_mode(void)
 				timeout_pitch=(uint16_t)(11L*2L*(long)half_brake_time_pitch/10L); // the 1.1 (11/10) factor has to be tuned in flight, here it means 110% of the "normal" time.
 			}
 		}
-	
-		if ((hybrid_mode_pitch==3)&&(hybrid_mode_roll==3)) set_nav_mode(NAV_HYBRID);	// turns on NAV_HYBRID if both sticks are at rest (and sets the stopping point)
-		else set_nav_mode(NAV_NONE);
+		
+		if ((hybrid_mode_pitch==3)&&(hybrid_mode_roll==3)) { // turns on NAV_HYBRID if both sticks are at rest (and sets the stopping point)
+			// while loitering, updates average lat/lon wind offset angles from I terms
+			if (nav_mode==NAV_HYBRID){
+				//if (wind_comp.x==0) wind_comp.x=g.pid_rate_lat.get_i(0,1); else wind_comp.x=(0.99*wind_comp.x+0.01*g.pid_rate_lat.get_i(0,1));
+				//if (wind_comp.y==0) wind_comp.y=g.pid_rate_lon.get_i(0,1); else wind_comp.y=(0.99*wind_comp.y+0.01*g.pid_rate_lon.get_i(0,1));
+				if (loiter_stab_timer!=0) loiter_stab_timer--;
+			} 
+			else {
+				set_nav_mode(NAV_HYBRID);	
+				// starts a 3 seconds timer...
+				loiter_stab_timer=300;
+				// 
+			}
+		}
+		else {
+			if (nav_mode==NAV_HYBRID) {	// just exit from loiter: check if necessary to update wind_com
+				set_nav_mode(NAV_NONE);
+				// if speed < speed_0 and loitering almost for 3 seconds, upgrade wind_comp...
+				// I use max(|.|) in place of sqrt()
+				if ((loiter_stab_timer==0) && (max(abs(vel.x),abs(vel.y))<wp_nav._speed_0)) {
+					wind_comp.x=g.pid_loiter_rate_lat.get_i(0,1); 
+					wind_comp.y=g.pid_loiter_rate_lon.get_i(0,1); 
+				}
+				update_wind_offset_timer=0;	// force wind_offset update
+			}
+			if (ap.CH7_flag==1) {	// if enabled, compute wind offsets
+				if (update_wind_offset_timer==0){	// reduce update frequency of wind_offset to 10Hz
+					// compute wind_offset_roll/pitch frame referred (pitch/roll) and yaw rotated
+					wind_offset_pitch=wind_comp.x*cos_yaw + wind_comp.y*sin_yaw;
+					wind_offset_roll = -wind_comp.x*sin_yaw + wind_comp.y*cos_yaw;
+					// acceleration to angle (warning: reuses same variables...)
+					wind_offset_roll = constrain_float(fast_atan(wind_offset_roll/981)*(18000/M_PI), -4500, 4500);
+					wind_offset_pitch = constrain_float(fast_atan(wind_offset_pitch/981)*(18000/M_PI), -4500, 4500);
+					update_wind_offset_timer=10;
+				} else update_wind_offset_timer--;
+			}
+			else{
+				wind_offset_roll=0;
+				wind_offset_pitch=0;
+			}
+		}
 		
 		// output to stabilize controllers
 		switch (hybrid_mode_roll){
-			case 1: { get_stabilize_roll(control_roll); break;}
-			case 2: { get_stabilize_roll(brake_roll); break;}
+			case 1: { get_stabilize_roll(control_roll+wind_offset_roll); break;}
+			case 2: { get_stabilize_roll(brake_roll+wind_offset_roll); break;}
 			case 3: { 
 						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
 							get_stabilize_roll(wp_nav.get_desired_roll()); 
@@ -1859,8 +1924,8 @@ void update_roll_pitch_mode(void)
 					}
 		}
 		switch (hybrid_mode_pitch){
-			case 1: { get_stabilize_pitch(control_pitch); break;}
-			case 2: { get_stabilize_pitch(brake_pitch); break;}
+			case 1: { get_stabilize_pitch(control_pitch+wind_offset_pitch); break;}
+			case 2: { get_stabilize_pitch(brake_pitch+wind_offset_pitch); break;}
 			case 3: { 
 						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
 							get_stabilize_pitch(wp_nav.get_desired_pitch());
