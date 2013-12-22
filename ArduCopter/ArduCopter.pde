@@ -626,12 +626,15 @@ static uint8_t hybrid_mode_roll;		// 1=alt_hold; 2=brake 3=loiter
 static uint8_t hybrid_mode_pitch;		// 1=alt_hold; 2=brake 3=loiter
 static int16_t brake_roll, brake_pitch; // 
 static float K_brake;					// ST-JD: it was int32 instead of float!!
-static float gain_step;					// ST-JD: gain increment during transition from brake to loiter
+static int32_t wind_comp_x, wind_comp_y;// ST-JD : wind compensation vector, averaged I terms from loiter controller
+static int16_t wind_offset_roll,wind_offset_pitch;	// ST-JD : wind offsets for pitch/roll
 
 //static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
 static uint16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
 static bool timeout_roll_updated, timeout_pitch_updated; 	// Allow the timeout to be updated only once per braking.
 static uint16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
+static uint16_t loiter_stab_timer;		// loiter stabilization timer: we read pid's I terms in wind_comp only after this time from loiter start
+static uint8_t  update_wind_offset_timer;	// update wind_offset decimator (10Hz)
 ////////////////////////////////////////////////////////////////////////////////
 // CH7 and CH8 save waypoint control
 ////////////////////////////////////////////////////////////////////////////////
@@ -1614,9 +1617,13 @@ bool set_roll_pitch_mode(uint8_t new_roll_pitch_mode)
                 //cm/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
 				//K_brake=(float)wp_nav._max_braking_angle/speed_max_braking;					// brake_decrease_rate
 				K_brake=(15.0f*(float)wp_nav._brake_rate+95.0f)/100.0f;
-				gain_step=0.01/wp_nav._loiter_engage_sec;	// increment step for mixed transition
                 hybrid_mode_roll=3;				// Loiter start
 				hybrid_mode_pitch=3;			// Loiter start
+                wind_comp_x=0;                  // Init wind_comp (ef). For now, resetted each time hybrid is switched on
+                wind_comp_y=0;
+                wind_offset_roll=0;             // Init offset angles
+				wind_offset_pitch=0;
+                update_wind_offset_timer=0;     // Init wind offset computation timer          
 				roll_pitch_initialised = true;	// require gps lock
 			}
             break;
@@ -1837,33 +1844,55 @@ void update_roll_pitch_mode(void)
 			}
 		}
 	
-		if ((hybrid_mode_pitch==3)&&(hybrid_mode_roll==3)) set_nav_mode(NAV_HYBRID);	// turns on NAV_HYBRID if both sticks are at rest (and sets the stopping point)
-		else set_nav_mode(NAV_NONE);
-		
+		if ((hybrid_mode_pitch==3)&&(hybrid_mode_roll==3)){
+            // while loitering, updates average lat/lon wind offset angles from I terms
+			if (nav_mode==NAV_HYBRID){
+				if (loiter_stab_timer!=0){
+                    loiter_stab_timer--;
+                }else if (max(abs(vel.x),abs(vel.y))<wp_nav._speed_0){ //Or maybe 2*, 3* speed_0...
+                    if (wind_comp_x==0) wind_comp_x=g.pid_loiter_rate_lat.get_integrator(); else wind_comp_x=(int32_t)(0.99f*(float)wind_comp_x+0.01f*g.pid_loiter_rate_lat.get_integrator());
+                    if (wind_comp_y==0) wind_comp_y=g.pid_loiter_rate_lon.get_integrator(); else wind_comp_y=(int32_t)(0.99f*(float)wind_comp_y+0.01f*g.pid_loiter_rate_lon.get_integrator());
+                }
+			}else{
+				set_nav_mode(NAV_HYBRID);	// turns on NAV_HYBRID if both sticks are at rest (and sets the stopping point)
+				// use the previous rate pid's I term to avoid stop&go
+                g.pid_loiter_rate_lat.set_integrator(wind_comp_x);
+                g.pid_loiter_rate_lon.set_integrator(wind_comp_y);
+                loiter_stab_timer=300;      // starts a 3 seconds timer
+			}
+        }else{
+            set_nav_mode(NAV_NONE);
+            if (update_wind_offset_timer==0){	// reduce update frequency of wind_offset to 10Hz
+					// compute wind_offset_roll/pitch frame referred lon/lat_i_term and yaw rotated
+					// acceleration to angle
+					wind_offset_pitch = (float)fast_atan(-(wind_comp_x*cos_yaw + wind_comp_y*sin_yaw)/981)*(18000/M_PI);                    
+                    wind_offset_roll = (float)fast_atan((-wind_comp_x*sin_yaw + wind_comp_y*cos_yaw)/981)*(18000/M_PI);
+					update_wind_offset_timer=10;
+			} else update_wind_offset_timer--;
+        }
+   
 		// output to stabilize controllers
 		switch (hybrid_mode_roll){
-			case 1: { get_stabilize_roll(control_roll); break;}
-			case 2: { get_stabilize_roll(brake_roll); break;}
+			case 1: { get_stabilize_roll(constrain_int16(control_roll+wind_offset_roll,-g.angle_max,g.angle_max)); break;}
+			case 2: { get_stabilize_roll(constrain_int16(brake_roll+wind_offset_roll,-g.angle_max,g.angle_max)); break;}
 			case 3: { 
 						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
 							get_stabilize_roll(wp_nav.get_desired_roll()); 
 							break;
-						}
-						else {
-							get_stabilize_roll(brake_roll); break;
+						}else {
+							get_stabilize_roll(constrain_int16(brake_roll+wind_offset_roll,-g.angle_max,g.angle_max)); break;
 						}
 					}
 		}
 		switch (hybrid_mode_pitch){
-			case 1: { get_stabilize_pitch(control_pitch); break;}
-			case 2: { get_stabilize_pitch(brake_pitch); break;}
+			case 1: { get_stabilize_pitch(constrain_int16(control_pitch+wind_offset_pitch,-g.angle_max,g.angle_max)); break;}
+			case 2: { get_stabilize_pitch(constrain_int16(brake_pitch+wind_offset_pitch,-g.angle_max,g.angle_max)); break;}
 			case 3: { 
 						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
 							get_stabilize_pitch(wp_nav.get_desired_pitch());
 							break;
-						}
-						else { 
-							get_stabilize_pitch(brake_pitch); break;
+						}else { 
+							get_stabilize_pitch(constrain_int16(brake_pitch+wind_offset_pitch,-g.angle_max,g.angle_max)); break;
 						}
 					}
 		}

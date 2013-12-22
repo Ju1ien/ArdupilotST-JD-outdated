@@ -97,6 +97,7 @@ static bool set_nav_mode(uint8_t new_nav_mode)
             break;
 
         case NAV_LOITER:
+            wp_nav.init_I=true;     // JD-ST : we reset the i_terms in reset_I()
             // set target to current position
             wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity());
             nav_initialised = true;
@@ -104,8 +105,9 @@ static bool set_nav_mode(uint8_t new_nav_mode)
         case NAV_WP:
             nav_initialised = true;
             break;
-		case NAV_HYBRID:	// ST-JD: nav_hybrid initialisation of stopping point
-			// set target to stop position
+		case NAV_HYBRID:	        // ST-JD: nav_hybrid initialisation of stopping point
+			wp_nav.init_I=false;    // restore previous i_terms in Reset_I() => to avoid the stop_and_go effect
+            // set target to stop position
 			wp_nav.get_stopping_point(inertial_nav.get_position(), inertial_nav.get_velocity(), stopping_point);
 			wp_nav.init_loiter_target(stopping_point, Vector3f(0,0,0));
 			nav_initialised=true;
