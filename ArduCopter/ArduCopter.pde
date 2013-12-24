@@ -626,7 +626,7 @@ static uint8_t hybrid_mode_roll;		// 1=alt_hold; 2=brake 3=loiter
 static uint8_t hybrid_mode_pitch;		// 1=alt_hold; 2=brake 3=loiter
 static int16_t brake_roll, brake_pitch; // 
 static float K_brake;					// ST-JD: it was int32 instead of float!!
-static int32_t wind_comp_x, wind_comp_y;// ST-JD : wind compensation vector, averaged I terms from loiter controller
+static float wind_comp_x, wind_comp_y;// ST-JD : wind compensation vector, averaged I terms from loiter controller
 static int16_t wind_offset_roll,wind_offset_pitch;	// ST-JD : wind offsets for pitch/roll
 
 //static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
@@ -1850,8 +1850,8 @@ void update_roll_pitch_mode(void)
 				if (loiter_stab_timer!=0){
                     loiter_stab_timer--;
                 }else if (max(abs(vel.x),abs(vel.y))<wp_nav._speed_0){ //Or maybe 2*, 3* speed_0...
-                    if (wind_comp_x==0) wind_comp_x=g.pid_loiter_rate_lat.get_integrator(); else wind_comp_x=(int32_t)(0.99f*(float)wind_comp_x+0.01f*g.pid_loiter_rate_lat.get_integrator());
-                    if (wind_comp_y==0) wind_comp_y=g.pid_loiter_rate_lon.get_integrator(); else wind_comp_y=(int32_t)(0.99f*(float)wind_comp_y+0.01f*g.pid_loiter_rate_lon.get_integrator());
+                    if (wind_comp_x==0) wind_comp_x=g.pid_loiter_rate_lat.get_integrator(); else wind_comp_x=(0.99f*wind_comp_x+0.01f*g.pid_loiter_rate_lat.get_integrator());
+                    if (wind_comp_y==0) wind_comp_y=g.pid_loiter_rate_lon.get_integrator(); else wind_comp_y=(0.99f*wind_comp_y+0.01f*g.pid_loiter_rate_lon.get_integrator());
                 }
 			}else{
 				set_nav_mode(NAV_HYBRID);	// turns on NAV_HYBRID if both sticks are at rest (and sets the stopping point)
@@ -1865,8 +1865,8 @@ void update_roll_pitch_mode(void)
             if (update_wind_offset_timer==0){	// reduce update frequency of wind_offset to 10Hz
 					// compute wind_offset_roll/pitch frame referred lon/lat_i_term and yaw rotated
 					// acceleration to angle
-					wind_offset_pitch = (float)fast_atan(-(wind_comp_x*cos_yaw + wind_comp_y*sin_yaw)/981)*(18000/M_PI);                    
-                    wind_offset_roll = (float)fast_atan((-wind_comp_x*sin_yaw + wind_comp_y*cos_yaw)/981)*(18000/M_PI);
+					wind_offset_pitch = (float)fast_atan(-(wind_comp_x*cos_yaw + wind_comp_y*sin_yaw)*(1/981))*(18000/M_PI);                    
+					wind_offset_roll = (float)fast_atan((-wind_comp_x*sin_yaw + wind_comp_y*cos_yaw)*(1/981))*(18000/M_PI);
 					update_wind_offset_timer=10;
 			} else update_wind_offset_timer--;
         }
