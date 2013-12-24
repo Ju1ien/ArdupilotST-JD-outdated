@@ -1813,6 +1813,17 @@ void update_roll_pitch_mode(void)
         // limit and scale stick input 
 		if(hybrid_mode_roll == 1 || hybrid_mode_pitch == 1){
             get_pilot_desired_lean_angles(g.rc_1.control_in, g.rc_2.control_in, control_roll, control_pitch);
+            // On stick release, limit the angle_rate to smooth the manual=>brake transition
+            if ((ahrs.roll_sensor>0) && (control_roll>0) && (ahrs.roll_sensor-control_roll>wp_nav._control_smooth_rate)){
+                control_roll = ahrs.roll_sensor-wp_nav._control_smooth_rate;
+            }else if ((ahrs.roll_sensor<0) && (control_roll<0) && (control_roll-ahrs.roll_sensor>wp_nav._control_smooth_rate)){
+                control_roll = ahrs.roll_sensor+wp_nav._control_smooth_rate;
+            }
+            if ((ahrs.pitch_sensor>0) && (control_pitch>0) && (ahrs.pitch_sensor-control_pitch>wp_nav._control_smooth_rate)){
+                control_pitch = ahrs.pitch_sensor-wp_nav._control_smooth_rate;
+            }else if ((ahrs.pitch_sensor<0) && (control_pitch<0) && (control_pitch-ahrs.pitch_sensor>wp_nav._control_smooth_rate)){
+                control_pitch = ahrs.pitch_sensor+wp_nav._control_smooth_rate;
+            }
         }
 		
         // braking update

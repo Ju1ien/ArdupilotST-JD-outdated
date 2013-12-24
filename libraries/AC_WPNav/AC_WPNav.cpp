@@ -114,6 +114,16 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] PROGMEM = {
     // @Increment: 
     // @User: Standard
     AP_GROUPINFO("BR_SPEED_0",   11, AC_WPNav, _speed_0, SPEED_0),
+	
+	// @Param: HB_SMOOTH_RATE
+    // @DisplayName: number of deg/s the copter rolls/tilt during stick release
+    // @Description:   
+	// @Suggested range: 5 70
+    // @Units: deg/s
+    // @Range: 5 70
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("BR_SMOOTH_RATE",   12, AC_WPNav, _control_smooth_rate, SMOOTH_RATE),
     
     AP_GROUPEND
 };

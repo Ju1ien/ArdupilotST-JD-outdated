@@ -39,9 +39,10 @@
 
 #define WPNAV_MIN_LEASH_LENGTH          100.0f      // minimum leash lengths in cm
 
-#define BRAKE_RATE                      7.0f       // ST-JD : set it from 3 to 20, means the number of deg/s the copter rolls/tilt during braking
+#define BRAKE_RATE                      5.0f       // ST-JD : set it from 3 to 20, means the number of deg/s the copter rolls/tilt during braking
 #define MAX_BRAKING_ANGLE               3000        // ST-JD : set it from 2000 to 4500 in centidegrees
 #define SPEED_0                         10          // ST-JD : the max speed in cm/s to consider we have no more velocity for switching to loiter
+#define SMOOTH_RATE                     25         // ST-JD : set it from 5 to 70, means the number of deg/s the copter rolls/tilt during stick release
 	
 class AC_WPNav
 {
@@ -118,7 +119,8 @@ public:
     AP_Int16    _max_braking_angle;		// ST-JD : set it from 2000 to 4500 in centidegrees
     AP_Int16	_speed_max_braking;		// ST-JD : the min speed in cm/s that requires full braking angle
     AP_Int16	_speed_0;				// ST-JD : the max speed in cm/s to consider we have no more velocity for switching to loiter
-	bool		loiter_reset;           // ST-JD : init_loiter_target ask for a loiter reset at first loiter_update
+	AP_Int16	_control_smooth_rate;	// ST-JD : set it from 5 to 70, means the number of deg/s the copter rolls/tilt during stick release
+    bool		loiter_reset;           // ST-JD : init_loiter_target ask for a loiter reset at first loiter_update
 	float 		start_gain;				// ST-JD : soft-start gain time ramp
     bool        init_I;                 // ST-JD : allows rate i_term init in reset_i() function
 	
