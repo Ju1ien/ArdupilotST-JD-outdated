@@ -1773,7 +1773,7 @@ void update_roll_pitch_mode(void)
 		if (abs(control_roll) > wp_nav._loiter_deadband) { //stick input detected => direct to stab mode
 		    hybrid_mode_roll = 1;           // Set stab roll mode
         }else{
-			if(hybrid_mode_roll == 1){	    // stick released from stab => transition mode
+			if((hybrid_mode_roll == 1)  && (abs(ahrs.roll_sensor) < wp_nav._loiter_deadband)){	    // stick released from stab and copter horizontal => transition mode
 			 	hybrid_mode_roll = 2;       // Set brake roll mode
 				brake_roll = 0;             // reset brake
 				timeout_roll = 1000; 		// seconds*0.01 - time allowed for the braking to complete, updated at half-braking
@@ -1793,7 +1793,7 @@ void update_roll_pitch_mode(void)
         if (abs(control_pitch) > wp_nav._loiter_deadband){  //stick input detected => direct to stab mode
 		    hybrid_mode_pitch = 1;          // Set stab pitch mode
         }else{
-			if(hybrid_mode_pitch == 1){	    //stick released from stab => transition mode
+			if((hybrid_mode_pitch == 1) && (abs(ahrs.pitch_sensor) < wp_nav._loiter_deadband)){	    //stick released from stab and copter horizontal => transition mode
                 hybrid_mode_pitch = 2;      // Set brake pitch mode
 				brake_pitch = 0;            // reset brake
 				timeout_pitch=1000;		    // seconds*0.01 - time allowed for the braking to complete, updated at half-braking
@@ -1814,14 +1814,14 @@ void update_roll_pitch_mode(void)
 		if(hybrid_mode_roll == 1 || hybrid_mode_pitch == 1){
             get_pilot_desired_lean_angles(g.rc_1.control_in, g.rc_2.control_in, control_roll, control_pitch);
             // On stick release, limit the angle_rate to smooth the manual=>brake transition
-            if ((ahrs.roll_sensor>0) && (control_roll>0) && (ahrs.roll_sensor-control_roll>wp_nav._control_smooth_rate)){
+            if ((ahrs.roll_sensor > 0) && (control_roll > -wp_nav._loiter_deadband) && (ahrs.roll_sensor-control_roll > wp_nav._control_smooth_rate)){
                 control_roll = ahrs.roll_sensor-wp_nav._control_smooth_rate;
-            }else if ((ahrs.roll_sensor<0) && (control_roll<0) && (control_roll-ahrs.roll_sensor>wp_nav._control_smooth_rate)){
+            }else if ((ahrs.roll_sensor < 0) && (control_roll < wp_nav._loiter_deadband) && (control_roll-ahrs.roll_sensor>wp_nav._control_smooth_rate)){
                 control_roll = ahrs.roll_sensor+wp_nav._control_smooth_rate;
             }
-            if ((ahrs.pitch_sensor>0) && (control_pitch>0) && (ahrs.pitch_sensor-control_pitch>wp_nav._control_smooth_rate)){
+            if ((ahrs.pitch_sensor > 0) && (control_pitch > -wp_nav._loiter_deadband) && (ahrs.pitch_sensor-control_pitch > wp_nav._control_smooth_rate)){
                 control_pitch = ahrs.pitch_sensor-wp_nav._control_smooth_rate;
-            }else if ((ahrs.pitch_sensor<0) && (control_pitch<0) && (control_pitch-ahrs.pitch_sensor>wp_nav._control_smooth_rate)){
+            }else if ((ahrs.pitch_sensor < 0) && (control_pitch < wp_nav._loiter_deadband) && (control_pitch-ahrs.pitch_sensor > wp_nav._control_smooth_rate)){
                 control_pitch = ahrs.pitch_sensor+wp_nav._control_smooth_rate;
             }
         }
