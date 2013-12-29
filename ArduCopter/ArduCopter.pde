@@ -627,14 +627,16 @@ static uint8_t hybrid_mode_pitch;		// 1=alt_hold; 2=brake 3=loiter
 static int16_t brake_roll, brake_pitch; // 
 static float K_brake;					// ST-JD: it was int32 instead of float!!
 static float wind_comp_x, wind_comp_y;// ST-JD : wind compensation vector, averaged I terms from loiter controller
+//static float i_wind_comp_x, i_wind_comp_y;// ST-JD : wind compensation vector, accumulator I terms from loiter controller
+//static uint16_t n_wind_comp;				// ST-JD : wind compensation accumulator counter
 static int16_t wind_offset_roll,wind_offset_pitch;	// ST-JD : wind offsets for pitch/roll
 
 //static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
-static uint16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
+static int16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
 static bool timeout_roll_updated, timeout_pitch_updated; 	// Allow the timeout to be updated only once per braking.
-static uint16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
-static uint16_t loiter_stab_timer;		// loiter stabilization timer: we read pid's I terms in wind_comp only after this time from loiter start
-static uint8_t  update_wind_offset_timer;	// update wind_offset decimator (10Hz)
+static int16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
+static int16_t loiter_stab_timer;		// loiter stabilization timer: we read pid's I terms in wind_comp only after this time from loiter start
+static int8_t  update_wind_offset_timer;	// update wind_offset decimator (10Hz)
 ////////////////////////////////////////////////////////////////////////////////
 // CH7 and CH8 save waypoint control
 ////////////////////////////////////////////////////////////////////////////////
@@ -1619,11 +1621,13 @@ bool set_roll_pitch_mode(uint8_t new_roll_pitch_mode)
 				K_brake=(15.0f*(float)wp_nav._brake_rate+95.0f)/100.0f;
                 hybrid_mode_roll=3;				// Loiter start
 				hybrid_mode_pitch=3;			// Loiter start
-                wind_comp_x=0;                  // Init wind_comp (ef). For now, resetted each time hybrid is switched on
-                wind_comp_y=0;
+                wind_comp_x=wind_comp_y=0;                  // Init wind_comp (ef). For now, resetted each time hybrid is switched on
+                //i_wind_comp_x=i_wind_comp_y=0;
+				//n_wind_comp=0;
                 wind_offset_roll=0;             // Init offset angles
 				wind_offset_pitch=0;
                 update_wind_offset_timer=0;     // Init wind offset computation timer          
+				loiter_stab_timer=300;
 				roll_pitch_initialised = true;	// require gps lock
 			}
             break;
@@ -1813,6 +1817,7 @@ void update_roll_pitch_mode(void)
         // limit and scale stick input 
 		if(hybrid_mode_roll == 1 || hybrid_mode_pitch == 1){
             get_pilot_desired_lean_angles(g.rc_1.control_in, g.rc_2.control_in, control_roll, control_pitch);
+			/*
             // On stick release, limit the angle_rate to smooth the manual=>brake transition
             if ((ahrs.roll_sensor > 0) && (control_roll > -wp_nav._loiter_deadband) && (ahrs.roll_sensor-control_roll > wp_nav._control_smooth_rate)){
                 control_roll = ahrs.roll_sensor-wp_nav._control_smooth_rate;
@@ -1824,6 +1829,7 @@ void update_roll_pitch_mode(void)
             }else if ((ahrs.pitch_sensor < 0) && (control_pitch < wp_nav._loiter_deadband) && (control_pitch-ahrs.pitch_sensor > wp_nav._control_smooth_rate)){
                 control_pitch = ahrs.pitch_sensor+wp_nav._control_smooth_rate;
             }
+			*/
         }
 		
         // braking update
@@ -1850,7 +1856,7 @@ void update_roll_pitch_mode(void)
 			if (abs(brake_pitch)>brake_max_pitch){	// detect half braking and update timeout
 				brake_max_pitch=abs(brake_pitch);
 			}else if (!timeout_pitch_updated){
-				timeout_pitch = 1+(uint16_t)(12L*(long)(abs(brake_pitch))/(10L*(long)wp_nav._brake_rate));  // the 1.2 (12/10) factor has to be tuned in flight, here it means 120% of the "normal" time.
+				timeout_pitch = 1+(int16_t)(12L*(long)(abs(brake_pitch))/(10L*(long)wp_nav._brake_rate));  // the 1.2 (12/10) factor has to be tuned in flight, here it means 120% of the "normal" time.
                 timeout_pitch_updated = true;
 			}
 		}
@@ -1861,7 +1867,11 @@ void update_roll_pitch_mode(void)
 				if (loiter_stab_timer!=0){
                     loiter_stab_timer--;
                 }else if (max(abs(vel.x),abs(vel.y))<wp_nav._speed_0){ //Or maybe 2*, 3* speed_0...
-                    if (wind_comp_x==0) wind_comp_x=g.pid_loiter_rate_lat.get_integrator(); else wind_comp_x=(0.99f*wind_comp_x+0.01f*g.pid_loiter_rate_lat.get_integrator());
+                    /*i_wind_comp_x+=g.pid_loiter_rate_lat.get_integrator(); 
+                    i_wind_comp_y+=g.pid_loiter_rate_lon.get_integrator(); 
+					n_wind_comp++;	// WARNING: max loiter time of 655s !!!
+					*/
+					if (wind_comp_x==0) wind_comp_x=g.pid_loiter_rate_lat.get_integrator(); else wind_comp_x=(0.99f*wind_comp_x+0.01f*g.pid_loiter_rate_lat.get_integrator());
                     if (wind_comp_y==0) wind_comp_y=g.pid_loiter_rate_lon.get_integrator(); else wind_comp_y=(0.99f*wind_comp_y+0.01f*g.pid_loiter_rate_lon.get_integrator());
                 }
 			}else{
@@ -1876,8 +1886,19 @@ void update_roll_pitch_mode(void)
             if (update_wind_offset_timer==0){	// reduce update frequency of wind_offset to 10Hz
 					// compute wind_offset_roll/pitch frame referred lon/lat_i_term and yaw rotated
 					// acceleration to angle
-					wind_offset_pitch = (float)fast_atan(-(wind_comp_x*cos_yaw + wind_comp_y*sin_yaw)*(1/981))*(18000/M_PI);                    
-					wind_offset_roll = (float)fast_atan((-wind_comp_x*sin_yaw + wind_comp_y*cos_yaw)*(1/981))*(18000/M_PI);
+					if (ap.CH7_flag!=0) {
+						/*
+						if (n_wind_comp!=0) {
+							wind_comp_x=i_wind_comp_x/(float)n_wind_comp;
+							wind_comp_y=i_wind_comp_y/(float)n_wind_comp;
+							n_wind_comp=0;
+							i_wind_comp_x=i_wind_comp_y=0;
+						}
+						*/
+						wind_offset_pitch = (float)fast_atan(-(wind_comp_x*cos_yaw + wind_comp_y*sin_yaw)/981)*(18000/M_PI);                    
+						wind_offset_roll = (float)fast_atan((-wind_comp_x*sin_yaw + wind_comp_y*cos_yaw)/981)*(18000/M_PI);
+					}
+					else { wind_offset_pitch = wind_offset_roll = 0; }
 					update_wind_offset_timer=10;
 			} else update_wind_offset_timer--;
         }
