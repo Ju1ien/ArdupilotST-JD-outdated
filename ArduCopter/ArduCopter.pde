@@ -1821,11 +1821,13 @@ void update_roll_pitch_mode(void)
             // On stick release, limit the angle_rate to smooth the manual=>brake transition
             if ((ahrs.roll_sensor > 0) && (control_roll > -wp_nav._loiter_deadband) && (ahrs.roll_sensor-control_roll > wp_nav._control_smooth_rate)){
                 control_roll = ahrs.roll_sensor-wp_nav._control_smooth_rate;
+                //omega.x
             }else if ((ahrs.roll_sensor < 0) && (control_roll < wp_nav._loiter_deadband) && (control_roll-ahrs.roll_sensor>wp_nav._control_smooth_rate)){
                 control_roll = ahrs.roll_sensor+wp_nav._control_smooth_rate;
             }
             if ((ahrs.pitch_sensor > 0) && (control_pitch > -wp_nav._loiter_deadband) && (ahrs.pitch_sensor-control_pitch > wp_nav._control_smooth_rate)){
                 control_pitch = ahrs.pitch_sensor-wp_nav._control_smooth_rate;
+                //omega.y
             }else if ((ahrs.pitch_sensor < 0) && (control_pitch < wp_nav._loiter_deadband) && (control_pitch-ahrs.pitch_sensor > wp_nav._control_smooth_rate)){
                 control_pitch = ahrs.pitch_sensor+wp_nav._control_smooth_rate;
             }
@@ -1835,9 +1837,11 @@ void update_roll_pitch_mode(void)
         // braking update
 		if (hybrid_mode_roll>=2){       // Roll: allow braking update to run also during loiter 
 			if(vel_right>=0){           // negative roll means go left
+                //brake_roll = max(brake_roll-wp_nav._brake_rate,max((-K_brake*vel_right*(1.0f+500.0f/(vel_right+60.0f))),-wp_nav._max_braking_angle)); // centidegrees
                 brake_roll = max(min(ahrs.roll_sensor,brake_roll-wp_nav._brake_rate),max((-K_brake*vel_right*(1.0f+500.0f/(vel_right+60.0f))),-wp_nav._max_braking_angle)); // centidegrees
             }else{
-				brake_roll = min(max(ahrs.roll_sensor,brake_roll+wp_nav._brake_rate),min((-K_brake*vel_right*(1.0f+500.0f/(-vel_right+60.0f))),wp_nav._max_braking_angle));   // centidegrees
+				//brake_roll = min(brake_roll+wp_nav._brake_rate,min((-K_brake*vel_right*(1.0f+500.0f/(-vel_right+60.0f))),wp_nav._max_braking_angle));   // centidegrees
+                brake_roll = min(max(ahrs.roll_sensor,brake_roll+wp_nav._brake_rate),min((-K_brake*vel_right*(1.0f+500.0f/(-vel_right+60.0f))),wp_nav._max_braking_angle));   // centidegrees
             }
             if (abs(brake_roll)>brake_max_roll){	// detect half braking and update timeout
 				brake_max_roll=abs(brake_roll);               
@@ -1849,9 +1853,11 @@ void update_roll_pitch_mode(void)
 
 		if (hybrid_mode_pitch>=2){          // Pitch: allow braking update to run also during loiter
 			if(vel_fw>=0){                  // positive pitch means go backward
-				brake_pitch = min(max(ahrs.pitch_sensor,brake_pitch+wp_nav._brake_rate),min((K_brake*vel_fw*(1.0f+(500.0f/(vel_fw+60.0f)))),wp_nav._max_braking_angle));  // centidegrees
+				//brake_pitch = min(brake_pitch+wp_nav._brake_rate,min((K_brake*vel_fw*(1.0f+(500.0f/(vel_fw+60.0f)))),wp_nav._max_braking_angle));  // centidegrees
+                brake_pitch = min(max(ahrs.pitch_sensor,brake_pitch+wp_nav._brake_rate),min((K_brake*vel_fw*(1.0f+(500.0f/(vel_fw+60.0f)))),wp_nav._max_braking_angle));  // centidegrees
             }else{
-				brake_pitch = max(min(ahrs.pitch_sensor,brake_pitch-wp_nav._brake_rate),max((K_brake*vel_fw*(1.0f-(500.0f/(vel_fw-60.0f)))),-wp_nav._max_braking_angle)); // centidegrees
+				//brake_pitch = max(brake_pitch-wp_nav._brake_rate,max((K_brake*vel_fw*(1.0f-(500.0f/(vel_fw-60.0f)))),-wp_nav._max_braking_angle)); // centidegrees
+                brake_pitch = max(min(ahrs.pitch_sensor,brake_pitch-wp_nav._brake_rate),max((K_brake*vel_fw*(1.0f-(500.0f/(vel_fw-60.0f)))),-wp_nav._max_braking_angle)); // centidegrees
             }
 			if (abs(brake_pitch)>brake_max_pitch){	// detect half braking and update timeout
 				brake_max_pitch=abs(brake_pitch);

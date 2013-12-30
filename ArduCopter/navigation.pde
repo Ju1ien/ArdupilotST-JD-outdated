@@ -112,10 +112,10 @@ static bool set_nav_mode(uint8_t new_nav_mode)
             //Case 1
 			//wp_nav.get_stopping_point(inertial_nav.get_position(), inertial_nav.get_velocity(), stopping_point);
 			//wp_nav.init_loiter_target(stopping_point, Vector3f(0,0,0));
-			//Case 2
-            //wp_nav.init_loiter_target(inertial_nav.get_position(), Vector3f(0,0,0));
+			//Case 2 - Little twitch - quite no stop and go.
+            wp_nav.init_loiter_target(inertial_nav.get_position(), Vector3f(0,0,0));
             //Case 3 = std loiter engage
-            wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity());
+            //wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity());
             //Case 4
             //wp_nav.get_stopping_point(inertial_nav.get_position(), inertial_nav.get_velocity(), stopping_point);
             //wp_nav.init_loiter_target(stopping_point, inertial_nav.get_velocity());

@@ -42,7 +42,7 @@
 #define BRAKE_RATE                      5.0f       // ST-JD : set it from 3 to 20, means the number of deg/s the copter rolls/tilt during braking
 #define MAX_BRAKING_ANGLE               3000        // ST-JD : set it from 2000 to 4500 in centidegrees
 #define SPEED_0                         10          // ST-JD : the max speed in cm/s to consider we have no more velocity for switching to loiter
-#define SMOOTH_RATE                     25         // ST-JD : set it from 5 to 70, means the number of deg/s the copter rolls/tilt during stick release
+#define SMOOTH_RATE                     50         // ST-JD : set it from 5 to 70, means the number of deg/s the copter rolls/tilt during stick release
 	
 class AC_WPNav
 {
