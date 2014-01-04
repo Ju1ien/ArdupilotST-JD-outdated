@@ -699,11 +699,11 @@ void AC_WPNav::get_loiter_velocity_to_acceleration(float vel_lat, float vel_lon,
 		start_gain=0;
 	} else {
 		// ST-JD feed forward desired acceleration calculation
-		desired_accel.x = start_gain*(vel_lat - _vel_last.x)/dt;	// JD-ST : derivative term soft-start
-		desired_accel.y = start_gain*(vel_lon - _vel_last.y)/dt;	
-		if (start_gain<1.0) start_gain+=0.1/_loiter_engage_sec; else start_gain=1.0; // JD-ST : soft-start gain time ramp
-		//desired_accel.x = (vel_lat - _vel_last.x)/dt;
-		//desired_accel.y = (vel_lon - _vel_last.y)/dt;	
+		//desired_accel.x = start_gain*(vel_lat - _vel_last.x)/dt;	// JD-ST : derivative term soft-start
+		//desired_accel.y = start_gain*(vel_lon - _vel_last.y)/dt;	
+		//if (start_gain<1.0) start_gain+=0.1/_loiter_engage_sec; else start_gain=1.0; // JD-ST : soft-start gain time ramp
+		desired_accel.x = (vel_lat - _vel_last.x)/dt;
+		desired_accel.y = (vel_lon - _vel_last.y)/dt;	
 	}
 
     // store this iteration's velocities for the next iteration
