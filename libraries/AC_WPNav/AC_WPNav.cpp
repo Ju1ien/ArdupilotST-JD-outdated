@@ -123,7 +123,7 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] PROGMEM = {
     // @Range: 5 70
     // @Increment: 1
     // @User: Standard
-    AP_GROUPINFO("BR_SMOOTH_RATE",   12, AC_WPNav, _control_smooth_rate, SMOOTH_RATE),
+    // To delete if not used AP_GROUPINFO("BR_SMOOTH_RATE",   12, AC_WPNav, _control_smooth_rate, SMOOTH_RATE),
     
     AP_GROUPEND
 };
