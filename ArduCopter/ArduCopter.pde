@@ -624,7 +624,7 @@ static uint32_t loiter_time;
 ////////////////////////////////////////////////////////////////////////////////
 static uint8_t hybrid_mode_roll;		// 1=alt_hold; 2=brake 3=loiter
 static uint8_t hybrid_mode_pitch;		// 1=alt_hold; 2=brake 3=loiter
-static int16_t brake_roll = brake_pitch = 0; // 
+static int16_t brake_roll = 0,brake_pitch = 0; // 
 static float K_brake;					// ST-JD: it was int32 instead of float!!
 static float wind_comp_x, wind_comp_y;// ST-JD : wind compensation vector, averaged I terms from loiter controller
 //static float i_wind_comp_x, i_wind_comp_y;// ST-JD : wind compensation vector, accumulator I terms from loiter controller
