@@ -1826,28 +1826,24 @@ void update_roll_pitch_mode(void)
 			
             // smooth decrease filter
             // roll
-            if(omega.x*control_roll<=0){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
-                if(abs(control_roll)<STICK_RELEASE_SMOOTH_ANGLE){
-                    if(brake_roll>0){ // we use brake_roll to save mem usage and also because it will be natural transition with brake mode.
-                        brake_roll-=max(brake_roll*SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate); //rate decrease
-                        brake_roll=max(brake_roll,control_roll); // use the max value because we could have a smoother manual decrease than this computed value
-                    }else{
-                        brake_roll+=max(-brake_roll*SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate);
-                        brake_roll=min(brake_roll,control_roll);
-                    }
-                }else brake_roll=control_roll;
+            if((ahrs.roll_sensor*control_roll>=0)&&(abs(control_roll)<STICK_RELEASE_SMOOTH_ANGLE)){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
+                if(brake_roll>0){ // we use brake_roll to save mem usage and also because it will be natural transition with brake mode.
+                    brake_roll-=max((float)brake_roll*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate); //rate decrease
+                    brake_roll=max(brake_roll,control_roll); // use the max value if we increase and because we could have a smoother manual decrease than this computed value
+                }else{
+                    brake_roll+=max(-(float)brake_roll*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate);
+                    brake_roll=min(brake_roll,control_roll);
+                }
             }else brake_roll=control_roll;
             //pitch
-            if(omega.y*control_pitch<=0){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
-                if(abs(control_pitch)<STICK_RELEASE_SMOOTH_ANGLE){
-                    if(brake_pitch>0){ // we use brake_pitch to save mem usage and also because it will be natural transition with brake mode.
-                        brake_pitch-=max(brake_pitch*SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate); //rate decrease
-                        brake_pitch=max(brake_pitch,control_pitch); // use the max value because we could have a smoother manual decrease than this computed value
-                    }else{
-                        brake_pitch+=max(-brake_pitch*SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate);
-                        brake_pitch=min(brake_pitch,control_pitch);
-                    }
-                }else brake_pitch=control_pitch;
+            if((ahrs.pitch_sensor*control_pitch>=0)&&(abs(control_pitch)<STICK_RELEASE_SMOOTH_ANGLE)){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
+                if(brake_pitch>0){ // we use brake_pitch to save mem usage and also because it will be natural transition with brake mode.
+                    brake_pitch-=max((float)brake_pitch*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate); //rate decrease
+                    brake_pitch=max(brake_pitch,control_pitch); // use the max value because we could have a smoother manual decrease than this computed value
+                }else{
+                    brake_pitch+=max(-(float)brake_pitch*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate);
+                    brake_pitch=min(brake_pitch,control_pitch);
+                }
             }else brake_pitch=control_pitch;
             /*
             // An exponential shape should be better... have to test first with setting exp shape in radio

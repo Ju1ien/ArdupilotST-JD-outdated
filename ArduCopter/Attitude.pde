@@ -47,14 +47,14 @@ get_stabilize_roll(int32_t target_angle)
         // update state
         last_target_angle = target_angle;
         last_stb_roll_d = stb_roll_d;
-        stb_roll_d = stb_roll_d * 0.6; //kd = 0.6 set as fixed value for testing. 0.6 = 8%*kp
+        stb_roll_d = stb_roll_d * g.pi_stabilize_roll.kP() * 0.08; //kd = 0.6 set as fixed value for testing. 0.6 = 8%*kp
     }else{
         stb_roll_d = 0;
         last_target_angle = 0;
         last_stb_roll_d = 0;
     }
     // convert to desired rate
-    int32_t target_rate = g.pi_stabilize_roll.kP() * target_angle + stb_roll_d;
+    int32_t target_rate = g.pi_stabilize_roll.kP() * target_angle; //disable D_term, not so usefull...// + stb_roll_d;
 
     // constrain the target rate
     if (!ap.disable_stab_rate_limit) {
@@ -83,7 +83,7 @@ get_stabilize_pitch(int32_t target_angle)
         // update state
         last_target_angle = target_angle;
         last_stb_pitch_d = stb_pitch_d;
-        stb_pitch_d = stb_pitch_d * 0.6; //kd = 0.6 set as fixed value for testing. 0.6 = 8%*kp
+        stb_pitch_d = stb_pitch_d * g.pi_stabilize_pitch.kP() * 0.08; //kd = 0.6 set as fixed value for testing. 0.6 = 8%*kp
     }else{
         stb_pitch_d = 0;
         last_target_angle = 0;
@@ -91,7 +91,7 @@ get_stabilize_pitch(int32_t target_angle)
     }
     
     // convert to desired rate
-    int32_t target_rate = g.pi_stabilize_pitch.kP() * target_angle + stb_pitch_d;
+    int32_t target_rate = g.pi_stabilize_pitch.kP() * target_angle; //disable D_term, not so usefull...//  + stb_pitch_d;
 
     // constrain the target rate
     if (!ap.disable_stab_rate_limit) {
