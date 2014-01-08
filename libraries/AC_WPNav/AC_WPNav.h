@@ -42,7 +42,7 @@
 #define BRAKE_RATE                      7.0f        // ST-JD : set it from 3 to 20, means the number of deg/s the copter rolls/tilt during braking
 #define MAX_BRAKING_ANGLE               3000        // ST-JD : set it from 2000 to 4500 in centidegrees
 #define SPEED_0                         10          // ST-JD : the max speed in cm/s to consider we have no more velocity for switching to loiter
-#define SMOOTH_RATE_FACTOR              5           // ST-JD : set it from 3 to 7, 3 means longer but smoother transition
+#define SMOOTH_RATE_FACTOR              7           // ST-JD : set it from 3 to 7, 3 means longer but smoother transition
 #define STICK_RELEASE_SMOOTH_ANGLE      1800        // ST-JD : set it from 1000 to 2000, means the max number of centideg required to apply to smooth stick release effect (this avoid overshoot)
 #define LOITER_STAB_TIMER               300         // ST-JD : Must be higher than BRAKE_LOIT_MIX_TIMER (twice is a good deal) set it from 100 to 500, the number of centiseconds between loiter engage and getting wind_comp (once loiter stabilized)
 #define BRAKE_LOIT_MIX_TIMER            150         // ST-JD : Must be lower than LOITER_STAB_TIMER set it from 100 to 200, the number of centiseconds brake and loiter commands are mixed to make a smooth transition.
