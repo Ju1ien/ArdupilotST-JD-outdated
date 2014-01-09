@@ -120,12 +120,6 @@ public:
     AP_Int16	_speed_0;				// ST-JD : the max speed in cm/s to consider we have no more velocity for switching to loiter
 	bool		loiter_reset;           // ST-JD
 	float 		start_gain;				// ST-JD
-	float 		step_gain;				// ST-JD
-	bool		init_I;					// ST-JD : tell library if to call reset_i() 
-	
-	// ST-JD
-	// prova a calcolare il termine I da assegnare ai PID del loiter per evitare l'overshoot
-	void init_loiter_PID(int32_t acc_pitch,int32_t acc_roll);
 	
     /// get desired roll, pitch which should be fed into stabilize controllers
     int32_t get_desired_roll() const { return _desired_roll; };

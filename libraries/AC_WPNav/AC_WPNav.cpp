@@ -158,7 +158,6 @@ AC_WPNav::AC_WPNav(const AP_InertialNav* inav, const AP_AHRS* ahrs, APM_PI* pid_
     // calculate loiter leash
     calculate_loiter_leash_length();
     loiter_reset=true;    // ST-JD
-	init_I=true;		// reset_I allowed
 }
 
 ///
@@ -198,24 +197,6 @@ void AC_WPNav::get_stopping_point(const Vector3f& position, const Vector3f& velo
     target.x = position.x + (target_dist * velocity.x / vel_total);
     target.y = position.y + (target_dist * velocity.y / vel_total);
     target.z = position.z;
-}
-
-// JD-ST : try to initialise integrator term of rate PID
-// des_acc=Kp*vel_error+Kd(vel_error-vel_error_last)/dt+Ki*ierr
-// assuming Kd=0 and vel_cur=desired_vel => vel_error=0
-// => desired_accel=Ki*ierr
-void AC_WPNav::init_loiter_PID(int32_t acc_pitch, int32_t acc_roll)
-{
-Vector2f des_acc;	// x=lat; y=lon
-
-	// rotate pitch e roll to lat/lon frame
-	des_acc.x = (acc_pitch*_cos_yaw - acc_roll*_sin_yaw);
-    des_acc.y = (acc_pitch*_sin_yaw + acc_roll*_cos_yaw);
-
-	_pid_rate_lat->reset_I();	// zeroes _integrator
-	if (_pid_rate_lat->kI()!=0) _pid_rate_lat->get_i(des_acc.x/_pid_rate_lat->kI(), 1);	// sets _integrator to des_acc.x
-	_pid_rate_lon->reset_I();	// zeroes _integrator
-	if (_pid_rate_lon->kI()!=0) _pid_rate_lon->get_i(des_acc.y/_pid_rate_lon->kI(), 1);	// sets _integrator to des_acc.y
 }
 
 /// set_loiter_target in cm from home
@@ -329,7 +310,7 @@ int32_t AC_WPNav::get_bearing_to_target() const
     return get_bearing_cd(_inav->get_position(), _target);
 }
 
-/// update_loiter - run the loiter controller - should be called at 100hz
+/// update_loiter - run the loiter controller - should be called at 10hz
 void AC_WPNav::update_loiter()
 {
     // calculate dt
@@ -341,8 +322,8 @@ void AC_WPNav::update_loiter()
 
         dt = 0.0;
 		loiter_reset=false;                     // ST-JD
-        if (init_I) reset_I();					// ST_JD : init pid's I term only if necessary
-		_loiter_step = 0;
+        reset_I();
+        _loiter_step = 0;
     }
 
     // reset step back to 0 if 0.1 seconds has passed and we completed the last full cycle
@@ -709,7 +690,7 @@ void AC_WPNav::get_loiter_velocity_to_acceleration(float vel_lat, float vel_lon,
 		// feed forward desired acceleration calculation
 		desired_accel.x = start_gain*(vel_lat - _vel_last.x)/dt;	// JD-ST : derivative term soft-start
 		desired_accel.y = start_gain*(vel_lon - _vel_last.y)/dt;	
-		if (start_gain<1.0) start_gain+=step_gain; else start_gain=1.0; // JD-ST : soft-start gain time ramp
+		if (start_gain<1.0) start_gain+=dt/_loiter_engage_sec; else start_gain=1.0; // JD-ST : soft-start gain time ramp
 	}
 
     // store this iteration's velocities for the next iteration
@@ -767,8 +748,8 @@ void AC_WPNav::reset_I()
 {
     _pid_pos_lon->reset_I();
     _pid_pos_lat->reset_I();
-    _pid_rate_lon->reset_I();	
-    _pid_rate_lat->reset_I(); 
+    _pid_rate_lon->reset_I();
+    _pid_rate_lat->reset_I();
 
     // set last velocity to current velocity
     _vel_last = _inav->get_velocity();
