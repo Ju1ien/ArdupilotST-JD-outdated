@@ -114,6 +114,16 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] PROGMEM = {
     // @Increment: 
     // @User: Standard
     AP_GROUPINFO("BR_SPEED_0",   11, AC_WPNav, _speed_0, SPEED_0),
+	
+	// @Param: HB_SMOOTH_RATE
+    // @DisplayName: number of deg/s the copter rolls/tilt during stick release
+    // @Description:   
+	// @Suggested range: 5 70
+    // @Units: deg/s
+    // @Range: 5 70
+    // @Increment: 1
+    // @User: Standard
+    // To delete if not used AP_GROUPINFO("BR_SMOOTH_RATE",   12, AC_WPNav, _control_smooth_rate, SMOOTH_RATE),
     
     AP_GROUPEND
 };
@@ -157,7 +167,8 @@ AC_WPNav::AC_WPNav(const AP_InertialNav* inav, const AP_AHRS* ahrs, APM_PI* pid_
     AP_Param::setup_object_defaults(this, var_info);
     // calculate loiter leash
     calculate_loiter_leash_length();
-    loiter_reset=true;    // ST-JD
+    loiter_reset=true;      // ST-JD
+	init_I=true;		    // ST-JD reset_I allowed
 }
 
 ///
@@ -226,7 +237,7 @@ void AC_WPNav::init_loiter_target(const Vector3f& position, const Vector3f& velo
 
     // set last velocity to current velocity
     // To-Do: remove the line below by instead forcing reset_I to be called on the first loiter_update call
-    // ST-JD commented. _vel_last = _inav->get_velocity();
+    // ST-JD commented: _vel_last = _inav->get_velocity();
 	//_vel_last = _inav->get_velocity();
     loiter_reset=true; // ST-JD
 }
@@ -318,10 +329,10 @@ void AC_WPNav::update_loiter()
     float dt = (now - _loiter_last_update) / 1000.0f;
 
     // catch if we've just been started
-    if ((dt>=1.0)||loiter_reset) {     // ST-JD : add "or loiter_reset"
+    if ((dt>=1.0)||loiter_reset) {      // ST-JD : add "or loiter_reset"
 
         dt = 0.0;
-		loiter_reset=false;                     // ST-JD
+		loiter_reset=false;             // ST-JD
         reset_I();
         _loiter_step = 0;
     }
@@ -687,10 +698,12 @@ void AC_WPNav::get_loiter_velocity_to_acceleration(float vel_lat, float vel_lon,
 		desired_accel.y = 0;
 		start_gain=0;
 	} else {
-		// feed forward desired acceleration calculation
-		desired_accel.x = start_gain*(vel_lat - _vel_last.x)/dt;	// JD-ST : derivative term soft-start
-		desired_accel.y = start_gain*(vel_lon - _vel_last.y)/dt;	
-		if (start_gain<1.0) start_gain+=dt/_loiter_engage_sec; else start_gain=1.0; // JD-ST : soft-start gain time ramp
+		// ST-JD feed forward desired acceleration calculation
+		//desired_accel.x = start_gain*(vel_lat - _vel_last.x)/dt;	// JD-ST : derivative term soft-start
+		//desired_accel.y = start_gain*(vel_lon - _vel_last.y)/dt;	
+		//if (start_gain<1.0) start_gain+=0.1/_loiter_engage_sec; else start_gain=1.0; // JD-ST : soft-start gain time ramp
+		desired_accel.x = (vel_lat - _vel_last.x)/dt;
+		desired_accel.y = (vel_lon - _vel_last.y)/dt;	
 	}
 
     // store this iteration's velocities for the next iteration
@@ -748,9 +761,10 @@ void AC_WPNav::reset_I()
 {
     _pid_pos_lon->reset_I();
     _pid_pos_lat->reset_I();
-    _pid_rate_lon->reset_I();
-    _pid_rate_lat->reset_I();
-
+    if (init_I){	    // ST_JD : init rate pid's I term to 0 for loiter mode only, not for hybrid
+        _pid_rate_lon->reset_I();
+        _pid_rate_lat->reset_I();
+    }
     // set last velocity to current velocity
     _vel_last = _inav->get_velocity();
 }

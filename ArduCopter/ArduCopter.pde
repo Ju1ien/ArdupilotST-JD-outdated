@@ -624,15 +624,20 @@ static uint32_t loiter_time;
 ////////////////////////////////////////////////////////////////////////////////
 static uint8_t hybrid_mode_roll;		// 1=alt_hold; 2=brake 3=loiter
 static uint8_t hybrid_mode_pitch;		// 1=alt_hold; 2=brake 3=loiter
-static int16_t brake_roll, brake_pitch; // 
+static int16_t brake_roll = 0,brake_pitch = 0; // 
 static float K_brake;					// ST-JD: it was int32 instead of float!!
-static float gain_step;					// ST-JD: gain increment during transition from brake to loiter
+static float wind_comp_x, wind_comp_y;// ST-JD : wind compensation vector, averaged I terms from loiter controller
+//static float i_wind_comp_x, i_wind_comp_y;// ST-JD : wind compensation vector, accumulator I terms from loiter controller
+//static uint16_t n_wind_comp;				// ST-JD : wind compensation accumulator counter
+static int16_t wind_offset_roll,wind_offset_pitch;	// ST-JD : wind offsets for pitch/roll
 
 //static float speed_max_braking;	                // m/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
-static uint16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
-static uint16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
-static uint16_t half_brake_time_roll, half_brake_time_pitch; //used to detect half braking
-static uint16_t brake_count_roll, brake_count_pitch;		 // counter
+static int16_t timeout_roll, timeout_pitch; 	// seconds - time allowed for the braking to complete, this timeout will be updated at half-braking
+static bool timeout_roll_updated, timeout_pitch_updated; 	// Allow the timeout to be updated only once per braking.
+static int16_t brake_max_roll, brake_max_pitch; 	         // used to detect half braking
+static int16_t loiter_stab_timer;		// loiter stabilization timer: we read pid's I terms in wind_comp only after this time from loiter start
+static float brake_loiter_mix;		    // varies from 0 to 1, allows a smooth loiter engage
+static int8_t  update_wind_offset_timer;	// update wind_offset decimator (10Hz)
 ////////////////////////////////////////////////////////////////////////////////
 // CH7 and CH8 save waypoint control
 ////////////////////////////////////////////////////////////////////////////////
@@ -1615,9 +1620,15 @@ bool set_roll_pitch_mode(uint8_t new_roll_pitch_mode)
                 //cm/s -empirically evaluated but works for all configurations, set the brake_decrease at (almost) brake rate
 				//K_brake=(float)wp_nav._max_braking_angle/speed_max_braking;					// brake_decrease_rate
 				K_brake=(15.0f*(float)wp_nav._brake_rate+95.0f)/100.0f;
-				gain_step=0.01/wp_nav._loiter_engage_sec;	// increment step for mixed transition
                 hybrid_mode_roll=3;				// Loiter start
 				hybrid_mode_pitch=3;			// Loiter start
+                wind_comp_x=wind_comp_y=0;                  // Init wind_comp (ef). For now, resetted each time hybrid is switched on
+                //i_wind_comp_x=i_wind_comp_y=0;
+				//n_wind_comp=0;
+                wind_offset_roll=0;             // Init offset angles
+				wind_offset_pitch=0;
+                update_wind_offset_timer=0;     // Init wind offset computation timer          
+				loiter_stab_timer=LOITER_STAB_TIMER;
 				roll_pitch_initialised = true;	// require gps lock
 			}
             break;
@@ -1767,18 +1778,21 @@ void update_roll_pitch_mode(void)
 		if (abs(control_roll) > wp_nav._loiter_deadband) { //stick input detected => direct to stab mode
 		    hybrid_mode_roll = 1;           // Set stab roll mode
         }else{
-			if(hybrid_mode_roll == 1){	    // stick released from stab => transition mode
-			 	hybrid_mode_roll = 2;       // Set brake roll mode
-				brake_roll = 0;             // reset brake
-				timeout_roll=1000; 		    // seconds*0.01 - time allowed for the braking to complete, updated at half-braking
-				brake_max_roll=0; 		    // used to detect half braking
-				half_brake_time_roll=0;     // used to detect half braking
+			if((hybrid_mode_roll == 1)  && (abs(brake_roll) < 2*wp_nav._brake_rate)){	    // stick released from stab and copter horizontal (at wind comp) => transition mode
+ 			 	hybrid_mode_roll = 2;       // Set brake roll mode
+				//brake_roll = ahrs.roll_sensor;  // DON'T set it anymore as it's used for mode_1 => better transition
+				brake_roll = 0;             // this avoid false brake_timeout computing
+                timeout_roll = 600; 		// seconds*0.01 - time allowed for the braking to complete, updated at half-braking
+				timeout_roll_updated = false;   // Allow the timeout to be updated only once
+                brake_max_roll = 0; 		// used to detect half braking
 			}else{                          // manage brake-to-loiter transition
 				// brake timeout
 				if (timeout_roll>0) timeout_roll--;
-				if ((hybrid_mode_roll == 2) && ((timeout_roll==0) || (fabs(vel_right)<wp_nav._speed_0))){	 //stick released and transition finished (speed 0) or brake timeout => loiter mode
+                // Changed loiter engage : not once speed_0 reached but after a little delay that let the copter stabilize if it remains some rate. (maybe compare omega.x/y rather)
+                if((fabs(vel_right)<wp_nav._speed_0) && (timeout_roll>50)) timeout_roll = 50; // let 0.5s between brake reaches speed_0 and loiter engage
+                if ((hybrid_mode_roll == 2) && (timeout_roll==0)){	 //stick released and transition finished (speed 0) or brake timeout => loiter mode
 					hybrid_mode_roll = 3;   // Set loiter roll mode   
-					wp_nav.start_gain=0;
+					wp_nav.start_gain=0;    // To delete if not used
 					//if(nav_mode == NAV_LOITER) wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity()); // Nav could be already set to loiter for pitch, has to init again for roll
 				}
 			}
@@ -1787,17 +1801,20 @@ void update_roll_pitch_mode(void)
         if (abs(control_pitch) > wp_nav._loiter_deadband){  //stick input detected => direct to stab mode
 		    hybrid_mode_pitch = 1;          // Set stab pitch mode
         }else{
-			if(hybrid_mode_pitch == 1){	    //stick released from stab => transition mode
+			if((hybrid_mode_pitch == 1) && (abs(brake_pitch) < 2*wp_nav._brake_rate)){	    // stick released from stab and copter horizontal (at wind_comp) => transition mode
                 hybrid_mode_pitch = 2;      // Set brake pitch mode
-				brake_pitch = 0;            // reset brake
-				brake_count_pitch=0;	    // reset rising brake counter
-				timeout_pitch=1000;		    // seconds*0.01 - time allowed for the braking to complete, updated at half-braking
-				brake_max_pitch=0; 		    // used to detect half braking
-				half_brake_time_pitch=0; 	// half braking time
+				//brake_pitch = ahrs.pitch_sensor;  // From Sandro log, it should be required to re-enable it as the copter is phase-advanced from the desired_angle... DON'T set it anymore as it's used for mode_1 => better transition
+				brake_pitch = 0;             // this avoid false brake_timeout computing
+				timeout_pitch=600;		    // seconds*0.01 - time allowed for the braking to complete, updated at half-braking
+				timeout_pitch_updated = false;   // Allow the timeout to be updated only once
+                brake_max_pitch=0; 		    // used to detect half braking
 			}else{                          // manage brake-to-loiter transition
 				// brake timeout
 				if (timeout_pitch>0) timeout_pitch--;
-				if ((hybrid_mode_pitch == 2) && ((timeout_pitch==0) || (fabs(vel_fw)<wp_nav._speed_0))){   //stick released and transition finished (speed 0) or brake timeout => loiter mode
+				// Changed loiter engage : not once speed_0 reached but after a little delay that let the copter stabilize if it remains some rate. (maybe compare omega.x/y rather)
+                if((fabs(vel_fw)<wp_nav._speed_0) && (timeout_pitch>50)) timeout_pitch = 50; // let 0.5s between brake reaches speed_0 and loiter engage
+                if ((hybrid_mode_pitch == 2) && (timeout_pitch==0)){
+                //if ((hybrid_mode_pitch == 2) && ((timeout_pitch==0) || (fabs(vel_fw)<wp_nav._speed_0))){   //stick released and transition finished (speed 0) or brake timeout => loiter mode
 					hybrid_mode_pitch = 3;  // Set loiter pitch mode
 					wp_nav.start_gain=0;
 					//if(nav_mode == NAV_LOITER) wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity()); // Nav could be already set to loiter for roll, has to init again for pitch
@@ -1808,69 +1825,166 @@ void update_roll_pitch_mode(void)
         // limit and scale stick input 
 		if(hybrid_mode_roll == 1 || hybrid_mode_pitch == 1){
             get_pilot_desired_lean_angles(g.rc_1.control_in, g.rc_2.control_in, control_roll, control_pitch);
+			
+            // smooth decrease filter
+            // roll
+            if((brake_roll*control_roll>=0)&&(abs(control_roll)<STICK_RELEASE_SMOOTH_ANGLE)){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
+                if(brake_roll>0){ // we use brake_roll to save mem usage and also because it will be natural transition with brake mode.
+                    brake_roll-=max((float)brake_roll*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate); //rate decrease
+                    brake_roll=max(brake_roll,control_roll); // use the max value if we increase and because we could have a smoother manual decrease than this computed value
+                }else{
+                    brake_roll+=max(-(float)brake_roll*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate);
+                    brake_roll=min(brake_roll,control_roll);
+                }
+            }else brake_roll=control_roll;
+            //pitch
+            if((brake_pitch*control_pitch>=0)&&(abs(control_pitch)<STICK_RELEASE_SMOOTH_ANGLE)){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
+                if(brake_pitch>0){ // we use brake_pitch to save mem usage and also because it will be natural transition with brake mode.
+                    brake_pitch-=max((float)brake_pitch*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate); //rate decrease
+                    brake_pitch=max(brake_pitch,control_pitch); // use the max value because we could have a smoother manual decrease than this computed value
+                }else{
+                    brake_pitch+=max(-(float)brake_pitch*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate);
+                    brake_pitch=min(brake_pitch,control_pitch);
+                }
+            }else brake_pitch=control_pitch;
+            /*
+            // An exponential shape should be better... have to test first with setting exp shape in radio
+            // On stick release, limit the angle_rate to smooth the manual=>brake transition
+            if ((ahrs.roll_sensor > 0) && (control_roll > -wp_nav._loiter_deadband) && (ahrs.roll_sensor-control_roll > wp_nav._control_smooth_rate)){
+                control_roll = ahrs.roll_sensor-wp_nav._control_smooth_rate;
+                //omega.x
+            }else if ((ahrs.roll_sensor < 0) && (control_roll < wp_nav._loiter_deadband) && (control_roll-ahrs.roll_sensor>wp_nav._control_smooth_rate)){
+                control_roll = ahrs.roll_sensor+wp_nav._control_smooth_rate;
+            }
+            if ((ahrs.pitch_sensor > 0) && (control_pitch > -wp_nav._loiter_deadband) && (ahrs.pitch_sensor-control_pitch > wp_nav._control_smooth_rate)){
+                control_pitch = ahrs.pitch_sensor-wp_nav._control_smooth_rate;
+                //omega.y
+            }else if ((ahrs.pitch_sensor < 0) && (control_pitch < wp_nav._loiter_deadband) && (control_pitch-ahrs.pitch_sensor > wp_nav._control_smooth_rate)){
+                control_pitch = ahrs.pitch_sensor+wp_nav._control_smooth_rate;
+            }
+			*/
         }
 		
         // braking update
 		if (hybrid_mode_roll>=2){       // Roll: allow braking update to run also during loiter 
-			brake_count_roll++;			// update counter
-			if(vel_right>=0){           // negative roll means go left
+            if(vel_right>=0){           // negative roll = go left, positive roll = go right
                 brake_roll = max(brake_roll-wp_nav._brake_rate,max((-K_brake*vel_right*(1.0f+500.0f/(vel_right+60.0f))),-wp_nav._max_braking_angle)); // centidegrees
+                //brake_roll = max(min(ahrs.roll_sensor,brake_roll-wp_nav._brake_rate),max((-K_brake*vel_right*(1.0f+500.0f/(vel_right+60.0f))),-wp_nav._max_braking_angle)); // centidegrees
             }else{
 				brake_roll = min(brake_roll+wp_nav._brake_rate,min((-K_brake*vel_right*(1.0f+500.0f/(-vel_right+60.0f))),wp_nav._max_braking_angle));   // centidegrees
+                //brake_roll = min(max(ahrs.roll_sensor,brake_roll+wp_nav._brake_rate),min((-K_brake*vel_right*(1.0f+500.0f/(-vel_right+60.0f))),wp_nav._max_braking_angle));   // centidegrees
             }
-			if (abs(brake_roll)>brake_max_roll){	// detect half braking and update timeout
-				brake_max_roll=abs(brake_roll);
-				half_brake_time_roll=brake_count_roll;
-			}else{
-				timeout_roll=(uint16_t)(11L*2L*(long)half_brake_time_roll/10L); // the 1.1 (11/10) factor has to be tuned in flight, here it means 110% of the "normal" time.
-			}
+            if (abs(brake_roll)>brake_max_roll){	// detect half braking and update timeout
+				brake_max_roll=abs(brake_roll);               
+			}else if (!timeout_roll_updated){
+                timeout_roll = 1+(uint16_t)(15L*(long)(abs(brake_roll))/(10L*(long)wp_nav._brake_rate));  // the 1.2 (12/10) factor has to be tuned in flight, here it means 120% of the "normal" time.
+                timeout_roll_updated = true;
+            }
 		}	
 
 		if (hybrid_mode_pitch>=2){          // Pitch: allow braking update to run also during loiter
-			brake_count_pitch++;			// update counter
-			if(vel_fw>=0){                  // positive pitch means go backward
+			if(vel_fw>=0){                  // positive pitch = go backward, negative pitch = go forward
 				brake_pitch = min(brake_pitch+wp_nav._brake_rate,min((K_brake*vel_fw*(1.0f+(500.0f/(vel_fw+60.0f)))),wp_nav._max_braking_angle));  // centidegrees
+                //brake_pitch = min(max(ahrs.pitch_sensor,brake_pitch+wp_nav._brake_rate),min((K_brake*vel_fw*(1.0f+(500.0f/(vel_fw+60.0f)))),wp_nav._max_braking_angle));  // centidegrees
             }else{
 				brake_pitch = max(brake_pitch-wp_nav._brake_rate,max((K_brake*vel_fw*(1.0f-(500.0f/(vel_fw-60.0f)))),-wp_nav._max_braking_angle)); // centidegrees
+                //brake_pitch = max(min(ahrs.pitch_sensor,brake_pitch-wp_nav._brake_rate),max((K_brake*vel_fw*(1.0f-(500.0f/(vel_fw-60.0f)))),-wp_nav._max_braking_angle)); // centidegrees
             }
 			if (abs(brake_pitch)>brake_max_pitch){	// detect half braking and update timeout
 				brake_max_pitch=abs(brake_pitch);
-				half_brake_time_pitch=brake_count_pitch;
-			}else{
-				timeout_pitch=(uint16_t)(11L*2L*(long)half_brake_time_pitch/10L); // the 1.1 (11/10) factor has to be tuned in flight, here it means 110% of the "normal" time.
+			}else if (!timeout_pitch_updated){
+				//Changes 12 by 15 to let the brake=>loiter 0.5s happens before this timeout ends
+                timeout_pitch = 1+(int16_t)(15L*(long)(abs(brake_pitch))/(10L*(long)wp_nav._brake_rate));  // the 1.2 (12/10) factor has to be tuned in flight, here it means 120% of the "normal" time.
+                timeout_pitch_updated = true;
 			}
 		}
 	
-		if ((hybrid_mode_pitch==3)&&(hybrid_mode_roll==3)) set_nav_mode(NAV_HYBRID);	// turns on NAV_HYBRID if both sticks are at rest (and sets the stopping point)
-		else set_nav_mode(NAV_NONE);
-		
+		if ((hybrid_mode_pitch==3)&&(hybrid_mode_roll==3)){
+            // while loitering, updates average lat/lon wind offset angles from I terms
+			if (nav_mode==NAV_HYBRID){
+				if (!ap.land_complete && loiter_stab_timer!=0){
+                    loiter_stab_timer--;
+                }else if (max(abs(vel.x),abs(vel.y))<wp_nav._speed_0){ //Or maybe 2*, 3* speed_0...
+                    /*i_wind_comp_x+=g.pid_loiter_rate_lat.get_integrator(); 
+                    i_wind_comp_y+=g.pid_loiter_rate_lon.get_integrator(); 
+					n_wind_comp++;	// WARNING: max loiter time of 655s !!!
+					*/
+					if (wind_comp_x==0) wind_comp_x=wp_nav.get_desired_acc_x(); else wind_comp_x=(0.99f*wind_comp_x+0.01f*wp_nav.get_desired_acc_x());
+                    if (wind_comp_y==0) wind_comp_y=wp_nav.get_desired_acc_y(); else wind_comp_y=(0.99f*wind_comp_y+0.01f*wp_nav.get_desired_acc_y());
+                }
+                // Brake_Loiter commands mix factor
+                brake_loiter_mix = constrain_float((float)(LOITER_STAB_TIMER-loiter_stab_timer)/(float)BRAKE_LOIT_MIX_TIMER, 0, 1.0);
+                //check if usefull to set the position another time...
+                //set it at the end of the mix...
+                if (ap.CH7_flag!=0) {
+                    if((LOITER_STAB_TIMER-loiter_stab_timer)==BRAKE_LOIT_MIX_TIMER){
+                    // BAD and all loiter init will be bad IMO : wp_nav.init_loiter_target(inertial_nav.get_position(), inertial_nav.get_velocity());
+                    // Not usefull, you will see it's better with CH7 off as it reset the loiter controller that need some time to stabilize.
+                    // The command mix let the loiter controller stabilize and gives it the commands proportionally with time.
+                    wp_nav.set_loiter_target(inertial_nav.get_position());
+                    }
+                }
+			}else{
+				set_nav_mode(NAV_HYBRID);	// turns on NAV_HYBRID if both sticks are at rest (and sets the stopping point)
+				// use the previous rate pid's I term to avoid stop&go
+                // I thinks that's useless, lets try without it
+                //g.pid_loiter_rate_lat.set_integrator(wind_comp_x);
+                //g.pid_loiter_rate_lon.set_integrator(wind_comp_y);
+                loiter_stab_timer=LOITER_STAB_TIMER;      // starts a 3 seconds timer
+                brake_roll = 1;             // required for next mode_1 smooth stick release and to avoid twitch
+                brake_pitch = 1;            // required for next mode_1 smooth stick release and to avoid twitch
+			}
+        }else{
+            set_nav_mode(NAV_NONE);
+            if (update_wind_offset_timer==0){	// reduce update frequency of wind_offset to 10Hz
+					// compute wind_offset_roll/pitch frame referred lon/lat_i_term and yaw rotated
+					// acceleration to angle
+					if (ap.CH7_flag==0) {
+						/*
+						if (n_wind_comp!=0) {
+							wind_comp_x=i_wind_comp_x/(float)n_wind_comp;
+							wind_comp_y=i_wind_comp_y/(float)n_wind_comp;
+							n_wind_comp=0;
+							i_wind_comp_x=i_wind_comp_y=0;
+						}
+						*/
+						wind_offset_pitch = (float)fast_atan(-(wind_comp_x*cos_yaw + wind_comp_y*sin_yaw)/981)*(18000/M_PI);                    
+						wind_offset_roll = (float)fast_atan((-wind_comp_x*sin_yaw + wind_comp_y*cos_yaw)/981)*(18000/M_PI);
+					}
+					else { wind_offset_pitch = wind_offset_roll = 0; }
+					update_wind_offset_timer=10;
+			} else update_wind_offset_timer--;
+        }
+   
 		// output to stabilize controllers
 		switch (hybrid_mode_roll){
-			case 1: { get_stabilize_roll(control_roll); break;}
-			case 2: { get_stabilize_roll(brake_roll); break;}
+			case 1: { control_roll = brake_roll+wind_offset_roll; break;}
+			case 2: { control_roll = brake_roll+wind_offset_roll; break;} // group cases 1&2 if possible
 			case 3: { 
 						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
-							get_stabilize_roll(wp_nav.get_desired_roll()); 
+                            //Brake_Loiter mix at loiter engage
+                            control_roll = brake_loiter_mix*(float)wp_nav.get_desired_roll()+(1.0f-brake_loiter_mix)*(float)(brake_roll+wind_offset_roll); 
 							break;
-						}
-						else {
-							get_stabilize_roll(brake_roll); break;
+						}else {
+							control_roll = brake_roll+wind_offset_roll; break;
 						}
 					}
 		}
 		switch (hybrid_mode_pitch){
-			case 1: { get_stabilize_pitch(control_pitch); break;}
-			case 2: { get_stabilize_pitch(brake_pitch); break;}
+			case 1: { control_pitch = brake_pitch+wind_offset_pitch; break;}
+			case 2: { control_pitch = brake_pitch+wind_offset_pitch; break;} // group cases 1&2 if possible
 			case 3: { 
 						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
-							get_stabilize_pitch(wp_nav.get_desired_pitch());
+							//Brake_Loiter mix at loiter engage
+                            control_pitch = brake_loiter_mix*(float)wp_nav.get_desired_pitch()+(1.0f-brake_loiter_mix)*(float)(brake_pitch+wind_offset_pitch); 
 							break;
-						}
-						else { 
-							get_stabilize_pitch(brake_pitch); break;
+						}else { 
+							control_pitch = brake_pitch+wind_offset_pitch; break;
 						}
 					}
 		}
+        get_stabilize_roll(constrain_int16(control_roll,-g.angle_max,g.angle_max));
+        get_stabilize_pitch(constrain_int16(control_pitch,-g.angle_max,g.angle_max));
 		break;
         
     case ROLL_PITCH_SPORT:
