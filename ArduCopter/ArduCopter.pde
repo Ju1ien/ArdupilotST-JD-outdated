@@ -1764,9 +1764,9 @@ void update_roll_pitch_mode(void)
 	case ROLL_PITCH_HYBRID:			// ST_JD : Hybrid mode is STAB Roll/Pitch when stick input and automatic  braking +loitering on release
 		
 		update_simple_mode();       //TO-DO check if useless or if we keep it
-		
-		control_roll = g.rc_1.control_in;
-		control_pitch = g.rc_2.control_in;
+        
+        // limit and scale stick input 		
+        get_pilot_desired_lean_angles(g.rc_1.control_in, g.rc_2.control_in, control_roll, control_pitch);
 		
 		// speed 
 		vel = inertial_nav.get_velocity();
@@ -1822,13 +1822,10 @@ void update_roll_pitch_mode(void)
 			}
         }
 		
-        // limit and scale stick input 
-		if(hybrid_mode_roll == 1 || hybrid_mode_pitch == 1){
-            get_pilot_desired_lean_angles(g.rc_1.control_in, g.rc_2.control_in, control_roll, control_pitch);
-			
-            // smooth decrease filter
-            // roll
-            if((brake_roll*control_roll>=0)&&(abs(control_roll)<STICK_RELEASE_SMOOTH_ANGLE)){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
+        // manual roll/pitch with smooth decrease filter
+        // roll
+        if(hybrid_mode_roll == 1){
+            if(((long)brake_roll*(long)control_roll>=0)&&(abs(control_roll)<STICK_RELEASE_SMOOTH_ANGLE)){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
                 if(brake_roll>0){ // we use brake_roll to save mem usage and also because it will be natural transition with brake mode.
                     brake_roll-=max((float)brake_roll*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate); //rate decrease
                     brake_roll=max(brake_roll,control_roll); // use the max value if we increase and because we could have a smoother manual decrease than this computed value
@@ -1837,8 +1834,10 @@ void update_roll_pitch_mode(void)
                     brake_roll=min(brake_roll,control_roll);
                 }
             }else brake_roll=control_roll;
-            //pitch
-            if((brake_pitch*control_pitch>=0)&&(abs(control_pitch)<STICK_RELEASE_SMOOTH_ANGLE)){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
+        }
+        //pitch
+		if(hybrid_mode_pitch == 1){
+            if(((long)brake_pitch*(long)control_pitch>=0)&&(abs(control_pitch)<STICK_RELEASE_SMOOTH_ANGLE)){ //Smooth decrease only when we want to stop, not if we have to quickly change direction
                 if(brake_pitch>0){ // we use brake_pitch to save mem usage and also because it will be natural transition with brake mode.
                     brake_pitch-=max((float)brake_pitch*(float)SMOOTH_RATE_FACTOR/100,wp_nav._brake_rate); //rate decrease
                     brake_pitch=max(brake_pitch,control_pitch); // use the max value because we could have a smoother manual decrease than this computed value
@@ -1847,22 +1846,6 @@ void update_roll_pitch_mode(void)
                     brake_pitch=min(brake_pitch,control_pitch);
                 }
             }else brake_pitch=control_pitch;
-            /*
-            // An exponential shape should be better... have to test first with setting exp shape in radio
-            // On stick release, limit the angle_rate to smooth the manual=>brake transition
-            if ((ahrs.roll_sensor > 0) && (control_roll > -wp_nav._loiter_deadband) && (ahrs.roll_sensor-control_roll > wp_nav._control_smooth_rate)){
-                control_roll = ahrs.roll_sensor-wp_nav._control_smooth_rate;
-                //omega.x
-            }else if ((ahrs.roll_sensor < 0) && (control_roll < wp_nav._loiter_deadband) && (control_roll-ahrs.roll_sensor>wp_nav._control_smooth_rate)){
-                control_roll = ahrs.roll_sensor+wp_nav._control_smooth_rate;
-            }
-            if ((ahrs.pitch_sensor > 0) && (control_pitch > -wp_nav._loiter_deadband) && (ahrs.pitch_sensor-control_pitch > wp_nav._control_smooth_rate)){
-                control_pitch = ahrs.pitch_sensor-wp_nav._control_smooth_rate;
-                //omega.y
-            }else if ((ahrs.pitch_sensor < 0) && (control_pitch < wp_nav._loiter_deadband) && (control_pitch-ahrs.pitch_sensor > wp_nav._control_smooth_rate)){
-                control_pitch = ahrs.pitch_sensor+wp_nav._control_smooth_rate;
-            }
-			*/
         }
 		
         // braking update
@@ -1958,8 +1941,8 @@ void update_roll_pitch_mode(void)
    
 		// output to stabilize controllers
 		switch (hybrid_mode_roll){
-			case 1: { control_roll = brake_roll+wind_offset_roll; break;}
-			case 2: { control_roll = brake_roll+wind_offset_roll; break;} // group cases 1&2 if possible
+			case 1: // same action for cases 1&2
+			case 2: { control_roll = brake_roll+wind_offset_roll; break;}
 			case 3: { 
 						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
                             //Brake_Loiter mix at loiter engage
@@ -1971,8 +1954,8 @@ void update_roll_pitch_mode(void)
 					}
 		}
 		switch (hybrid_mode_pitch){
-			case 1: { control_pitch = brake_pitch+wind_offset_pitch; break;}
-			case 2: { control_pitch = brake_pitch+wind_offset_pitch; break;} // group cases 1&2 if possible
+			case 1: // same action for cases 1&2
+			case 2: { control_pitch = brake_pitch+wind_offset_pitch; break;}
 			case 3: { 
 						if(nav_mode == NAV_HYBRID) { // if nav_hybrid enabled...
 							//Brake_Loiter mix at loiter engage
