@@ -65,16 +65,6 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] PROGMEM = {
     // ST-JD Hybrid params
     //*********************************************************************
     
-    // @Param: HB_LOIT_ENGAGE_SEC
-    // @DisplayName: Loiter engage seconds
-    // @Description: Controls loiter start-up time.  If 0, soft engage disabled
-	// @Suggested range: 0.5 min, 6.0 max
-    // @Units: s
-    // @Range: 0.5 6.0
-    // @Increment: 0.1
-    // @User: Standard
-    AP_GROUPINFO("LOIT_ENG_S",    6, AC_WPNav, _loiter_engage_sec, WPNAV_ENGAGE_SEC),
-	
 	// @Param: HB_LOIT_DBAND
     // @DisplayName: Loiter-alt_hold switch threshold
     // @Description: Controls loiter switch to alt_hold.  
@@ -83,17 +73,17 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] PROGMEM = {
     // @Range: 5 100
     // @Increment: 1
     // @User: Standard
-    AP_GROUPINFO("LOIT_DB",    8, AC_WPNav, _loiter_deadband, WPNAV_LOITER_DB),
+    AP_GROUPINFO("LOIT_DB",    6, AC_WPNav, _loiter_deadband, WPNAV_LOITER_DB),
 	
 	// @Param: HB_BR_RATE
     // @DisplayName: number of deg/s the copter rolls/tilt during braking
     // @Description:   
-	// @Suggested range: 5 20
+	// @Suggested range: 5 10
     // @Units: deg/s
-    // @Range: 5 20
+    // @Range: 5 10
     // @Increment: 1
     // @User: Standard
-    AP_GROUPINFO("BR_RATE",    9, AC_WPNav, _brake_rate, BRAKE_RATE),
+    AP_GROUPINFO("BR_RATE",    7, AC_WPNav, _brake_rate, BRAKE_RATE),
 	
 	// @Param: HB_MAX_BR_ANG
     // @DisplayName: max pitch/roll angle during braking
@@ -103,28 +93,27 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] PROGMEM = {
     // @Range: 2000 4500
     // @Increment: 100
     // @User: Standard
-    AP_GROUPINFO("BR_MAX_ANG",   10, AC_WPNav, _max_braking_angle, MAX_BRAKING_ANGLE),
+    AP_GROUPINFO("BR_MAX_ANG",   8, AC_WPNav, _max_braking_angle, MAX_BRAKING_ANGLE),
 	
 	// @Param: HB_SPEED_0
     // @DisplayName: the max speed in cm/s to consider we have no more velocity for switching to loiter
 	// #Description: 
 	// @Suggested range: 
     // @Units: cm/s
-    // @Range: 
-    // @Increment: 
-    // @User: Standard
-    AP_GROUPINFO("BR_SPEED_0",   11, AC_WPNav, _speed_0, SPEED_0),
-	
-	// @Param: HB_SMOOTH_RATE
-    // @DisplayName: number of deg/s the copter rolls/tilt during stick release
-    // @Description:   
-	// @Suggested range: 5 70
-    // @Units: deg/s
-    // @Range: 5 70
+    // @Range: 5 15
     // @Increment: 1
     // @User: Standard
-    // To delete if not used AP_GROUPINFO("BR_SMOOTH_RATE",   12, AC_WPNav, _control_smooth_rate, SMOOTH_RATE),
-    
+    AP_GROUPINFO("BR_SPEED_0",   9, AC_WPNav, _speed_0, SPEED_0),
+	
+	// @Param: HB_SMOOTH_RATE_FACTOR
+    // @DisplayName: set it from 4 to 7, 4 means longer but smoother transition
+    // @Description:   
+	// @Suggested range: 4 7
+    // @Units: 
+    // @Range: 4 7
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("STICK_SMTH",   10, AC_WPNav, _smooth_rate_factor, SMOOTH_RATE_FACTOR),
     AP_GROUPEND
 };
 
@@ -696,12 +685,7 @@ void AC_WPNav::get_loiter_velocity_to_acceleration(float vel_lat, float vel_lon,
 	if( dt == 0.0 ) {
 		desired_accel.x = 0;
 		desired_accel.y = 0;
-		start_gain=0;
 	} else {
-		// ST-JD feed forward desired acceleration calculation
-		//desired_accel.x = start_gain*(vel_lat - _vel_last.x)/dt;	// JD-ST : derivative term soft-start
-		//desired_accel.y = start_gain*(vel_lon - _vel_last.y)/dt;	
-		//if (start_gain<1.0) start_gain+=0.1/_loiter_engage_sec; else start_gain=1.0; // JD-ST : soft-start gain time ramp
 		desired_accel.x = (vel_lat - _vel_last.x)/dt;
 		desired_accel.y = (vel_lon - _vel_last.y)/dt;	
 	}

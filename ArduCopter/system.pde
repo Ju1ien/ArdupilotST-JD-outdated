@@ -470,7 +470,6 @@ static bool set_mode(uint8_t mode)
 				set_yaw_mode(HYBRID_YAW);
 				set_roll_pitch_mode(HYBRID_RP);
 				set_throttle_mode(HYBRID_THR);
-				//set_nav_mode(HYBRID_NAV);  //Already called by Hybrid submodes in arducopter.pde
 			}
             break;
 

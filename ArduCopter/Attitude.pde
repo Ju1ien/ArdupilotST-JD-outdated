@@ -35,26 +35,8 @@ get_stabilize_roll(int32_t target_angle)
     // angle error
     target_angle = wrap_180_cd(target_angle - ahrs.roll_sensor);
     
-    // ST-JD : Add derivative term... Use AP_PID class instead if test successfull
-    // Only for hybrid mode in case of bug. This is useless only if rate controller is perfectly tuned
-    static int32_t last_target_angle = 0;
-    static float last_stb_roll_d = 0;
-    float stb_roll_d = 0;
-    if (roll_pitch_mode==ROLL_PITCH_HYBRID){
-        stb_roll_d = (target_angle - last_target_angle) / G_Dt;
-        // 2Hz filter => 0.08
-        stb_roll_d = last_stb_roll_d + (G_Dt / ( 0.08 + G_Dt)) * (stb_roll_d - last_stb_roll_d);
-        // update state
-        last_target_angle = target_angle;
-        last_stb_roll_d = stb_roll_d;
-        stb_roll_d = stb_roll_d * g.pi_stabilize_roll.kP() * 0.08; //kd = 0.6 set as fixed value for testing. 0.6 = 8%*kp
-    }else{
-        stb_roll_d = 0;
-        last_target_angle = 0;
-        last_stb_roll_d = 0;
-    }
     // convert to desired rate
-    int32_t target_rate = g.pi_stabilize_roll.kP() * target_angle; //disable D_term, not so usefull...// + stb_roll_d;
+    int32_t target_rate = g.pi_stabilize_roll.kP() * target_angle;
 
     // constrain the target rate
     if (!ap.disable_stab_rate_limit) {
@@ -70,28 +52,9 @@ get_stabilize_pitch(int32_t target_angle)
 {
     // angle error
     target_angle            = wrap_180_cd(target_angle - ahrs.pitch_sensor);
-
-    // ST-JD : Add derivative term... Use AP_PID class instead if test successfull
-    // Only for hybrid mode in case of bug.
-    static int32_t last_target_angle = 0;
-    static float last_stb_pitch_d = 0;
-    float stb_pitch_d = 0;
-    if (roll_pitch_mode==ROLL_PITCH_HYBRID){
-        stb_pitch_d = (target_angle - last_target_angle) / G_Dt;
-        // 2Hz filter => 0.08
-        stb_pitch_d = last_stb_pitch_d + (G_Dt / ( 0.08 + G_Dt)) * (stb_pitch_d - last_stb_pitch_d);
-        // update state
-        last_target_angle = target_angle;
-        last_stb_pitch_d = stb_pitch_d;
-        stb_pitch_d = stb_pitch_d * g.pi_stabilize_pitch.kP() * 0.08; //kd = 0.6 set as fixed value for testing. 0.6 = 8%*kp
-    }else{
-        stb_pitch_d = 0;
-        last_target_angle = 0;
-        last_stb_pitch_d = 0;
-    }
     
     // convert to desired rate
-    int32_t target_rate = g.pi_stabilize_pitch.kP() * target_angle; //disable D_term, not so usefull...//  + stb_pitch_d;
+    int32_t target_rate = g.pi_stabilize_pitch.kP() * target_angle;
 
     // constrain the target rate
     if (!ap.disable_stab_rate_limit) {
