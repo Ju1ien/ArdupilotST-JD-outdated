@@ -2181,6 +2181,8 @@ void update_throttle_mode(void)
                     set_throttle_out(0, false);
                     // deactivate accel based throttle controller (it will be automatically re-enabled when alt-hold controller next runs)
                     throttle_accel_deactivate();
+                    // ST-JD - reset the inav altitude to baro measure to avoid "rocket start" if take_off after land without reboot
+                    inertial_nav.set_altitude(barometer.get_altitude()*100);  //or rather use baro_alt = read_barometer() but where is the read_barometer function?
                 }
             }
             // check land_complete flag again in case it was changed above
